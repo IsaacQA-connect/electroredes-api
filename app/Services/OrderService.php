@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Models\CashRegister;
 
 class OrderService
 {
@@ -93,7 +94,8 @@ class OrderService
 
             $this->registerPayments(
                 $order,
-                $data['payments'] ?? []
+                $data['payments'] ?? [],
+                $user
             );
 
             if ($order->channel === 'POS') {
@@ -116,13 +118,29 @@ class OrderService
 
     private function registerPayments(
         Order $order,
-        array $payments
+        array $payments,
+        User $user
     ): void {
         
         if ($order->channel === 'POS' && empty($payments)) {
             throw ValidationException::withMessages([
                 'payments' => [
                     'Una venta POS debe registrar al menos un pago.'
+                ],
+            ]);
+        }
+
+        // Buscar si el usuario tiene una caja abierta
+        $openCashRegister = CashRegister::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'OPEN')
+            ->first();
+
+        // Si es una venta POS, exigir que el usuario tenga caja abierta
+        if ($order->channel === 'POS' && !$openCashRegister) {
+            throw ValidationException::withMessages([
+                'cash_register' => [
+                    'No tienes ninguna caja abierta para procesar esta venta POS.'
                 ],
             ]);
         }
@@ -151,6 +169,17 @@ class OrderService
 
             if ($status === PaymentStatus::APPROVED) {
                 $totalPaid += $payment['amount'];
+                // Generar el ingreso a la caja abierta activa del usuario
+                if ($openCashRegister) {
+                    $openCashRegister->movements()->create([
+                        'user_id' => $user->id,
+                        'type' => 'INFLOW',
+                        'amount' => $payment['amount'],
+                        'description' => "Venta POS #{$order->id} - Método: {$method->value}",
+                        'reference_type' => 'order',
+                        'reference_id' => $order->id,
+                    ]);
+                }
             }
         }
 

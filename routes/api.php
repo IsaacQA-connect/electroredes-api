@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderReturnController;
 use App\Http\Controllers\Api\V1\SupplierController;
+use App\Http\Controllers\Api\V1\CashRegisterController;
 
 //Route::get('/user', function (Request $request) {
 //    return $request->user();
@@ -155,6 +156,11 @@ Route::prefix('v1')->group(function () {
             //Route::put('suppliers/{supplier}', [SupplierController::class, 'update']);
             //Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy']);
             Route::apiResource('suppliers', SupplierController::class);
+
+            Route::get('cash-registers/current', [CashRegisterController::class, 'current']);
+            Route::post('cash-registers/open', [CashRegisterController::class, 'open']);
+            Route::post('cash-registers/{cashRegister}/close', [CashRegisterController::class, 'close']);
+            Route::post('cash-registers/{cashRegister}/movements', [CashRegisterController::class, 'addMovement']);
 
         });
 
