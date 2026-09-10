@@ -8,6 +8,7 @@ use App\Http\Requests\StorePurchaseRequest;
 use App\Http\Resources\PurchaseResource;
 use App\Services\PurchaseService;
 use Illuminate\Http\JsonResponse;
+use App\Models\Purchase;
 
 class PurchaseController extends Controller
 {
@@ -16,34 +17,42 @@ class PurchaseController extends Controller
     ) {
     }
 
-    public function index()
+    public function index(Request $request): JsonResponse
     {
-        return PurchaseResource::collection(
-            $this->purchaseService->getAll()
-        );
+        $purchases = Purchase::with(['supplier', 'user', 'details.product'])
+            ->latest('purchase_date')
+            ->paginate($request->get('per_page', 20));
+
+        return response()->json([
+            'data' => PurchaseResource::collection($purchases),
+            'meta' => [
+                'current_page' => $purchases->currentPage(),
+                'last_page' => $purchases->lastPage(),
+                'per_page' => $purchases->perPage(),
+                'total' => $purchases->total(),
+            ],
+        ]);
     }
 
-    public function store(
-        StorePurchaseRequest $request
-    ): JsonResponse {
-
+    public function store(StorePurchaseRequest $request): JsonResponse
+    {
         $purchase = $this->purchaseService->register(
             $request->validated(),
             $request->user()
         );
 
         return response()->json([
-            'message' => 'Compra registrada correctamente.',
+            'message' => 'Compra registrada e ingresada al inventario correctamente.',
             'data' => new PurchaseResource($purchase),
         ], 201);
     }
 
-    public function show($id)
+    public function show(Purchase $purchase): JsonResponse
     {
-        $purchase = \App\Models\Purchase::findOrFail($id);
+        $purchase->load(['supplier', 'user', 'details.product']);
 
-        return new PurchaseResource(
-            $this->purchaseService->getById($purchase)
-        );
+        return response()->json([
+            'data' => new PurchaseResource($purchase),
+        ]);
     }
 }

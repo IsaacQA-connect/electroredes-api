@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\PurchaseController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderReturnController;
+use App\Http\Controllers\Api\V1\SupplierController;
 
 //Route::get('/user', function (Request $request) {
 //    return $request->user();
@@ -148,11 +149,12 @@ Route::prefix('v1')->group(function () {
                 [OrderReturnController::class, 'show']
             );
 
-            Route::get('suppliers', [SupplierController::class, 'index']);
-            Route::post('suppliers', [SupplierController::class, 'store']);
-            Route::get('suppliers/{supplier}', [SupplierController::class, 'show']);
-            Route::put('suppliers/{supplier}', [SupplierController::class, 'update']);
-            Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy']);
+            //Route::get('suppliers', [SupplierController::class, 'index']);
+            //Route::post('suppliers', [SupplierController::class, 'store']);
+            //Route::get('suppliers/{supplier}', [SupplierController::class, 'show']);
+            //Route::put('suppliers/{supplier}', [SupplierController::class, 'update']);
+            //Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy']);
+            Route::apiResource('suppliers', SupplierController::class);
 
         });
 
