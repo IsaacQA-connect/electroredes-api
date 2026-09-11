@@ -376,4 +376,28 @@ class InventoryService
             return $movement->load('details.product');
         });
     }
+
+    public function registerAdjustmentEntry(
+        array $data,
+        User $user
+    ): InventoryMovement {
+
+        return $this->registerAdjustment(
+            $data,
+            $user,
+            InventoryMovementType::ADJUSTMENT_ENTRY
+        );
+    }
+
+    public function registerAdjustmentExit(
+        array $data,
+        User $user
+    ): InventoryMovement {
+
+        return $this->registerAdjustment(
+            $data,
+            $user,
+            InventoryMovementType::ADJUSTMENT_EXIT
+        );
+    }
 }

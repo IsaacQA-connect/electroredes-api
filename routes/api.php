@@ -19,12 +19,15 @@ use App\Http\Controllers\Api\V1\CashRegisterController;
 
 Route::prefix('v1')->group(function () {
 
-    Route::prefix('auth')->group(function () {
-
-        Route::post('/login', [
+    Route::apiResource('products', ProductController::class)->except(['destroy']);
+    Route::apiResource('categories', CategoryController::class)->except(['destroy']);
+    Route::post('/login', [
             AuthController::class,
             'login'
         ]);
+    Route::prefix('auth')->group(function () {
+
+        
 
         Route::middleware('auth:sanctum')->group(function () {
 
@@ -128,6 +131,11 @@ Route::prefix('v1')->group(function () {
             Route::post('orders', [
                 OrderController::class,
                 'store'
+            ]);
+
+            Route::get('orders', [
+                OrderController::class,
+                'index'
             ]);
 
             Route::get('orders/{order}', [
