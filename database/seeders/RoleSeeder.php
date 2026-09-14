@@ -13,16 +13,28 @@ class RoleSeeder extends Seeder
      */
     public function run(): void
     {
-        Role::create([
-            'name' => 'ADMIN',
-            'description' => 'Administrador del sistema',
-            'status' => true,
-        ]);
+        Role::firstOrCreate(
+            ['name' => 'ADMINISTRADOR'],
+            [
+                'description' => 'Administrador del sistema',
+                'status' => true,
+            ]
+        );
 
-        Role::create([
-            'name' => 'VENDEDOR',
-            'description' => 'Usuario encargado de las ventas',
-            'status' => true,
-        ]);
+        Role::firstOrCreate(
+            ['name' => 'VENDEDOR'],
+            [
+                'description' => 'Usuario encargado de las ventas',
+                'status' => true,
+            ]
+        );
+
+        Role::firstOrCreate(
+            ['name' => 'CLIENTE'],
+            [
+                'description' => 'Cliente registrado desde la tienda online',
+                'status' => true,
+            ]
+        );
     }
 }

@@ -2,35 +2,26 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
+use App\Models\Role;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class AuthService
 {
-    /**
-     * Create a new class instance.
-     */
-    //public function __construct(){//}
-    public function login(string $email, string $password): array
+    public function login(array $credentials): array
     {
-        $user = User::with('role')
-            ->where('email', $email)
-            ->first();
+        $user = User::with('role', 'customer')->where('email', $credentials['email'])->first();
 
-        if (!$user || !Hash::check($password, $user->password)) {
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Las credenciales son incorrectas.'],
+                'email' => ['Las credenciales proporcionadas son incorrectas.'],
             ]);
         }
 
-        if (!$user->status) {
-            throw ValidationException::withMessages([
-                'email' => ['El usuario se encuentra inactivo.'],
-            ]);
-        }
-
-        $token = $user->createToken('api-token')->plainTextToken;
+        $token = $user->createToken('auth_token')->plainTextToken;
 
         return [
             'user' => $user,
@@ -38,8 +29,40 @@ class AuthService
         ];
     }
 
+    public function register(array $data): array
+    {
+        return DB::transaction(function () use ($data) {
+            $customerRole = Role::where('name', 'CLIENTE')->firstOrFail();
+
+            $user = User::create([
+                'role_id' => $customerRole->id,
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'password' => Hash::make($data['password']),
+            ]);
+
+            $customer = Customer::create([
+                'user_id' => $user->id,
+                'document_type' => $data['document_type'],
+                'document_number' => $data['document_number'],
+                'name' => $data['name'],
+                'phone' => $data['phone'],
+                'email' => $data['email'],
+                'address' => $data['address'],
+                'status' => true,
+            ]);
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return [
+                'user' => $user->load('role', 'customer'),
+                'token' => $token,
+            ];
+        });
+    }
+
     public function logout(User $user): void
     {
-        $user->currentAccessToken()?->delete();
+        $user::currentAccessToken()->delete();
     }
 }

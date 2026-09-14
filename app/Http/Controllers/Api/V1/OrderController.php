@@ -17,6 +17,17 @@ class OrderController extends Controller
     ) {
     }
 
+    public function index(Request $request)
+    {
+        // Si quieres traer todas las órdenes (perfil administrador):
+        $orders = Order::all();
+        
+        // O si prefieres filtrar solo las órdenes del usuario logueado en Vue:
+        $orders = Order::where('user_id', $request->user()->id)->get();
+
+        return response()->json($orders, 200);
+    }
+
     public function store(
         StoreOrderRequest $request
     ): JsonResponse {

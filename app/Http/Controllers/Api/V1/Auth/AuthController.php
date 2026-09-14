@@ -4,37 +4,50 @@ namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
-    public function __construct(
-        private AuthService $authService
-    ) {
+    protected AuthService $authService;
+
+    public function __construct(AuthService $authService)
+    {
+        $this->authService = $authService;
+    }
+
+    public function register(RegisterRequest $request): JsonResponse
+    {
+        $result = $this->authService->register($request->validated());
+
+        return response()->json([
+            'message' => 'Cliente registrado exitosamente.',
+            'user' => new UserResource($result['user']),
+            'token' => $result['token'],
+        ], 201);
     }
 
     public function login(LoginRequest $request): JsonResponse
     {
-        $result = $this->authService->login(
-            $request->email,
-            $request->password
-        );
+        $result = $this->authService->login($request->validated());
 
         return response()->json([
             'message' => 'Inicio de sesión exitoso.',
-            'token' => $result['token'],
             'user' => new UserResource($result['user']),
+            'token' => $result['token'],
         ]);
     }
 
-    public function me(Request $request): UserResource
+    public function me(Request $request): JsonResponse
     {
-        return new UserResource(
-            $request->user()->load('role')
-        );
+        return response()->json([
+            'user' => new UserResource($request->user()->load('role', 'customer')),
+        ]);
     }
 
     public function logout(Request $request): JsonResponse
