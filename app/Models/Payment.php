@@ -15,6 +15,8 @@ class Payment extends Model
         'amount',
         'status',
         'transaction_code',
+        'payer_email',
+        'raw_response',
         'payment_date',
     ];
 

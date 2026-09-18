@@ -19,13 +19,24 @@ class OrderController extends Controller
 
     public function index(Request $request)
     {
-        // Si quieres traer todas las órdenes (perfil administrador):
-        $orders = Order::all();
-        
-        // O si prefieres filtrar solo las órdenes del usuario logueado en Vue:
-        $orders = Order::where('user_id', $request->user()->id)->get();
+        $user = $request->user();
 
-        return response()->json($orders, 200);
+        // 1. Iniciar consulta cargando relaciones necesarias (evita el problema N+1)
+        $query = Order::with(['customer', 'details.product']);
+
+        // 2. Si no es administrador, filtrar únicamente sus órdenes
+        // (Ajusta la condición según tu modelo: $user->is_admin, $user->role === 'admin', etc.)
+        if ($user->role !== 'admin') {
+            $query->where('user_id', $user->id);
+        }
+
+        // 3. Ordenar descendentemente por fecha/ID (última orden primero)
+        $orders = $query->latest()->get();
+
+        return response()->json([
+            'status' => true,
+            'data' => $orders
+        ], 200);
     }
 
     public function store(

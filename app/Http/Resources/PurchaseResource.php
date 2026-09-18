@@ -18,15 +18,26 @@ class PurchaseResource extends JsonResource
         return [
             'id' => $this->id,
 
-            'supplier' => [
-                'id' => $this->supplier?->id,
-                'business_name' => $this->supplier?->business_name,
-            ],
+            //'supplier' => [  'id' => $this->supplier?->id, 'business_name' => $this->supplier?->business_name,],
 
-            'user' => [
-                'id' => $this->user?->id,
-                'name' => $this->user?->name,
-            ],
+            //'user' => ['id' => $this->user?->id,'name' => $this->user?->name,],
+
+            'supplier' => $this->whenLoaded(
+                'supplier',
+                fn () => [
+                    'id' => $this->supplier->id,
+                    'business_name' => $this->supplier->business_name,
+                    'document_number' => $this->supplier->document_number,
+                ]
+            ),
+
+            'user' => $this->whenLoaded(
+                'user',
+                fn () => [
+                    'id' => $this->user->id,
+                    'name' => $this->user->name,
+                ]
+            ),
 
             'purchase_date' => $this->purchase_date,
 

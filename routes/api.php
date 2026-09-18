@@ -22,6 +22,7 @@ Route::prefix('v1')->group(function () {
     // Catálogo público para la tienda e-commerce
     Route::get('products', [ProductController::class, 'index']);
     Route::get('products/{product}', [ProductController::class, 'show']);
+    Route::post('/products/{product}/image', [ProductController::class, 'uploadImage']);
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('categories/{category}', [CategoryController::class, 'show']);
 
@@ -36,6 +37,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/logout', [AuthController::class, 'logout']);
         });
     });
+
+    // Ruta pública para los Webhooks de la pasarela (sin autenticación)
+    Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook']);
 
     
     Route::middleware('auth:sanctum')->group(function () {
@@ -97,50 +101,18 @@ Route::prefix('v1')->group(function () {
             'show'
         ]);
 
-        Route::get(
-            'inventory/stock',
-            [InventoryController::class, 'stock']
-        );
-
-        Route::get(
-            'inventory/low-stock',
-            [InventoryController::class, 'lowStock']
-        );
-
-        Route::get(
-            'inventory/movements',
-            [InventoryController::class, 'movements']
-        );
-
-        Route::get(
-            'inventory/movements/{movement}',
-            [InventoryController::class, 'showMovement']
-        );
-
-        Route::post(
-            'inventory/initial-stock',
-            [InventoryController::class, 'initialStock']
-        );
-
-        Route::get(
-            'inventory/valuation',
-            [InventoryController::class, 'valuation']
-        );
-
-        Route::post(
-            'inventory/adjustments/entry',
-            [InventoryController::class, 'adjustmentEntry']
-        );
-
-        Route::post(
-            'inventory/adjustments/exit',
-            [InventoryController::class, 'adjustmentExit']
-        );
-
-        Route::post('orders', [
-            OrderController::class,
-            'store'
-        ]);
+        Route::get('inventory/stock',[InventoryController::class, 'stock']);
+        Route::get('inventory/low-stock',[InventoryController::class, 'lowStock']);
+        Route::get('inventory/movements',[InventoryController::class, 'movements']);
+        Route::get('inventory/movements/{movement}',[InventoryController::class, 'showMovement']);
+        Route::post('inventory/initial-stock',[InventoryController::class, 'initialStock']);
+        Route::get('inventory/valuation',[InventoryController::class, 'valuation']);
+        Route::post('inventory/adjustments/entry',[InventoryController::class, 'adjustmentEntry']);
+        Route::post('inventory/adjustments/exit',[InventoryController::class, 'adjustmentExit']);
+        Route::get('inventory/kardex/{product}', [InventoryController::class, 'kardex']);
+        
+        
+        Route::post('orders', [OrderController::class,'store']);
 
         Route::get('orders', [
             OrderController::class,
@@ -184,11 +156,10 @@ Route::prefix('v1')->group(function () {
             
             // Crear preferencia de pago
             Route::post('/payments/create-preference', [PaymentController::class, 'createPreference']);
-            
+            Route::post('/payments/confirm', [PaymentController::class, 'confirmPayment']);
         });
 
-        // Ruta pública para los Webhooks de la pasarela (sin autenticación)
-        Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook']);
+        
 
     });
 

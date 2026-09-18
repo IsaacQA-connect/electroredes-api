@@ -20,7 +20,7 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        env('FRONTEND_URL', 'https://electroredes.soportecenter.com'),
+        env('FRONTEND_URL', 'https://electroredes.soportecenter.com', 'http://localhost:5173'),
     ],
 
     'allowed_origins_patterns' => [],

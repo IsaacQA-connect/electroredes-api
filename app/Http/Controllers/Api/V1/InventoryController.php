@@ -76,6 +76,23 @@ class InventoryController extends Controller
         return new InventoryMovementResource($movement);
     }
 
+    public function kardex(Request $request, int $productId)
+    {
+        $request->validate([
+            'start_date' => 'nullable|date',
+            'end_date'   => 'nullable|date|after_or_equal:start_date',
+        ]);
+
+        $kardex = $this->inventoryService->getKardexByProduct(
+            $productId,
+            $request->query('start_date'),
+            $request->query('end_date')
+        );
+
+        return response()->json([
+            'data' => $kardex,
+        ]);
+    }
     public function valuation()
     {
         return response()->json(

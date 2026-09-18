@@ -17,9 +17,7 @@ class InventoryMovementResource extends JsonResource
         //return parent::toArray($request);
         return [
             'id' => $this->id,
-
             'type' => $this->type?->value,
-
             'type_label' => match ($this->type?->value) {
                 'INITIAL_STOCK' => 'Inventario inicial',
                 'PURCHASE_ENTRY' => 'Entrada por compra',
@@ -33,14 +31,11 @@ class InventoryMovementResource extends JsonResource
 
             'reference_type' => $this->reference_type,
             'reference_id' => $this->reference_id,
-
             'movement_date' => $this->movement_date,
-
             'user' => [
                 'id' => $this->user?->id,
                 'name' => $this->user?->name,
             ],
-
             'notes' => $this->notes,
 
             'details' => $this->whenLoaded(
@@ -52,6 +47,7 @@ class InventoryMovementResource extends JsonResource
                         'product_name' => $detail->product?->name,
                         'quantity' => $detail->quantity,
                         'unit_cost' => $detail->unit_cost,
+                        'subtotal'     => round((float) $detail->quantity * (float) $detail->unit_cost, 2),
                     ]
                 )
             ),

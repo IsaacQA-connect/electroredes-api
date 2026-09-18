@@ -400,4 +400,105 @@ class InventoryService
             InventoryMovementType::ADJUSTMENT_EXIT
         );
     }
+
+    public function getKardexByProduct(int $productId, ?string $startDate = null, ?string $endDate = null): array
+    {
+        $product = Product::findOrFail($productId);
+
+        // Consulta de detalles de movimientos del producto con sus relaciones
+        $details = InventoryMovementDetail::with('movement')
+            ->where('product_id', $productId)
+            ->whereHas('movement', function ($query) use ($startDate, $endDate) {
+                if ($startDate) {
+                    $query->whereDate('movement_date', '>=', $startDate);
+                }
+                if ($endDate) {
+                    $query->whereDate('movement_date', '<=', $endDate);
+                }
+            })
+            ->get()
+            ->sortBy(function ($detail) {
+                return $detail->movement->movement_date;
+            });
+
+        $movements = [];
+        $runningStock = 0;
+        $runningTotalCost = 0;
+        $runningUnitCost = 0;
+
+        foreach ($details as $detail) {
+            $movement = $detail->movement;
+            $type = $movement->type;
+            $typeValue = is_object($type) && isset($type->value) ? $type->value : (string) $type;
+
+            $quantity = (float) $detail->quantity;
+            $unitCost = (float) $detail->unit_cost;
+            $totalCost = $quantity * $unitCost;
+
+            // Determinar si es Entrada o Salida según el tipo de movimiento
+            $isEntry = in_array($typeValue, [
+                'INITIAL_STOCK',
+                'PURCHASE_ENTRY',
+                'ADJUSTMENT_ENTRY',
+                'RETURN_ENTRY',
+            ], true);
+
+            $entry = null;
+            $exit = null;
+
+            if ($isEntry) {
+                $runningStock += $quantity;
+                $runningTotalCost += $totalCost;
+                $runningUnitCost = $runningStock > 0 ? ($runningTotalCost / $runningStock) : 0;
+
+                $entry = [
+                    'quantity' => $quantity,
+                    'unit_cost' => number_format($unitCost, 2, '.', ''),
+                    'total_cost' => number_format($totalCost, 2, '.', ''),
+                ];
+            } else {
+                $runningStock -= $quantity;
+                $effectiveCost = $unitCost > 0 ? $unitCost : $runningUnitCost;
+                $exitTotalCost = $quantity * $effectiveCost;
+                $runningTotalCost -= $exitTotalCost;
+
+                if ($runningTotalCost < 0) {
+                    $runningTotalCost = 0;
+                }
+
+                $exit = [
+                    'quantity' => $quantity,
+                    'unit_cost' => number_format($effectiveCost, 2, '.', ''),
+                    'total_cost' => number_format($exitTotalCost, 2, '.', ''),
+                ];
+            }
+
+            $typeLabel = method_exists($type, 'label') ? $type->label() : $typeValue;
+
+            $movements[] = [
+                'id' => $movement->id,
+                'date' => $movement->movement_date->format('Y-m-d H:i:s'),
+                'type' => $typeLabel,
+                'notes' => $movement->notes ?? '',
+                'entry' => $entry ?? ['quantity' => null, 'unit_cost' => null, 'total_cost' => null],
+                'exit' => $exit ?? ['quantity' => null, 'unit_cost' => null, 'total_cost' => null],
+                'balance' => [
+                    'stock' => $runningStock,
+                    'unit_cost' => number_format($runningUnitCost, 2, '.', ''),
+                    'total_cost' => number_format($runningStock * $runningUnitCost, 2, '.', ''),
+                ],
+            ];
+        }
+
+        return [
+            'product' => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'code' => $product->code ?? $product->barcode ?? 'N/A',
+                'stock' => $product->stock,
+                'cost' => $product->cost,
+            ],
+            'movements' => array_values($movements),
+        ];
+    }
 }

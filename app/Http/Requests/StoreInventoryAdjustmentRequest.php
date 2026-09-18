@@ -26,6 +26,7 @@ class StoreInventoryAdjustmentRequest extends FormRequest
             'movement_date' => [
                 'required',
                 'date',
+                'before_or_equal:today', // Evita registros en el futuro
             ],
 
             'notes' => [
@@ -58,6 +59,13 @@ class StoreInventoryAdjustmentRequest extends FormRequest
                // 'numeric',
                 //'gte:0',
             //],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'details.*.product_id.distinct' => 'No puedes repetir el mismo producto en el detalle.',
         ];
     }
 }

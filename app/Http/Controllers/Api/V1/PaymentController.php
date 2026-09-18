@@ -53,6 +53,7 @@ class PaymentController extends Controller
             }
 
             $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/');
+            $backendUrl = rtrim(env('APP_URL', 'https://apielectroredes.soportecenter.com'), '/');
 
             $preferenceData = [
                 'items' => $items,
@@ -63,10 +64,11 @@ class PaymentController extends Controller
                     'surname' => 'Prueba',
                 ],
                 'back_urls' => [
-                    'success' => $frontendUrl . '/catalog?status=success',
-                    'failure' => $frontendUrl . '/cart?status=failure',
-                    'pending' => $frontendUrl . '/catalog?status=pending',
+                    'success' => $frontendUrl . '/',
+                    'failure' => $frontendUrl . '/cart',
+                    'pending' => $frontendUrl . '/',
                 ],
+                'notification_url' => $backendUrl . '/api/v1/payments/webhook', //cambio
                 'binary_mode' => true,
             ];
 
@@ -144,6 +146,8 @@ class PaymentController extends Controller
                                     'amount' => $mpPayment->transaction_amount,
                                     'status' => $paymentStatus,
                                     'transaction_code' => (string) $mpPayment->id,
+                                    'payer_email' => $mpPayment->payer->email ?? $order->user->email ?? null,
+                                    'raw_response' => json_encode($mpPayment),
                                     'payment_date' => $mpPayment->date_approved ?? now(),
                                 ]
                             );
@@ -166,10 +170,33 @@ class PaymentController extends Controller
             'status' => 'required',
         ]);
 
-        $order = Order::findOrFail($request->order_id);
+        // Cargar la relación user para asegurar el correo por defecto
+        $order = Order::with('user')->findOrFail($request->order_id);
         $rawStatus = strtoupper($request->status);
 
-        // Mapear de la respuesta URL a Enums válidos
+        // Inicialización global de variables antes del bloque try
+        $amount = $order->total ?? 0;
+        $payerEmail = $order->user->email ?? null;
+        $rawResponse = null;
+
+        try {
+            $accessToken = $this->getAccessToken();
+            if ($accessToken) {
+                MercadoPagoConfig::setAccessToken($accessToken);
+                $client = new PaymentClient();
+                $mpPayment = $client->get($request->payment_id);
+
+                if ($mpPayment) {
+                    $rawStatus = strtoupper($mpPayment->status);
+                    $amount = $mpPayment->transaction_amount ?? $amount;
+                    $payerEmail = $mpPayment->payer->email ?? $payerEmail;
+                    $rawResponse = json_encode($mpPayment);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('No se pudo consultar el pago en MP desde confirmPayment: ' . $e->getMessage());
+        }
+
         if (in_array($rawStatus, ['APPROVED', 'SUCCESS'])) {
             $order->update(['status' => OrderStatus::COMPLETED->value]);
             $paymentStatus = PaymentStatus::APPROVED->value;
@@ -181,8 +208,11 @@ class PaymentController extends Controller
             ['order_id' => $order->id],
             [
                 'method' => 'ONLINE_PAYMENT',
+                'amount' => $amount,
                 'status' => $paymentStatus,
                 'transaction_code' => (string) $request->payment_id,
+                'payer_email' => $payerEmail,
+                'raw_response' => $rawResponse,
                 'payment_date' => now(),
             ]
         );

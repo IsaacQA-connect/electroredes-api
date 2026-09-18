@@ -39,6 +39,7 @@ class ProductResource extends JsonResource
             'low_stock' => $this->stock <= $this->minimum_stock,
 
             'status' => $this->status,
+            'image_path'   => $this->image_path,
 
             'category_id' => $this->category_id,
 

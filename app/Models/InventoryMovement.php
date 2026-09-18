@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use App\Enums\InventoryMovementType;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class InventoryMovement extends Model
 {
@@ -31,5 +32,10 @@ class InventoryMovement extends Model
     public function details(): HasMany
     {
         return $this->hasMany(InventoryMovementDetail::class);
+    }
+
+    public function reference(): MorphTo
+    {
+        return $this->morphTo();
     }
 }
