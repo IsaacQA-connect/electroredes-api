@@ -67,4 +67,19 @@ class OrderController extends Controller
             'data' => new OrderResource($order),
         ]);
     }
+
+    public function update(Request $request, Order $order)
+    {
+        $request->validate([
+            'status' => 'required|string',
+        ]);
+
+        $updatedOrder = $this->orderService->updateStatus(
+            $order,
+            $request->status,
+            $request->user()
+        );
+
+        return new OrderResource($updatedOrder);
+    }
 }

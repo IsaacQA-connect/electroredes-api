@@ -5,20 +5,16 @@ namespace App\Services;
 use App\Enums\InventoryMovementType;
 use App\Models\InventoryMovement;
 use App\Models\InventoryMovementDetail;
+use App\Models\Order;
+use App\Models\OrderReturn;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\User;
-use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
-use App\Models\Order;
-use App\Models\OrderReturn;
+use Illuminate\Validation\ValidationException;
 
 class InventoryService
 {
-    /**
-     * Create a new class instance.
-     */
-    //public function __construct(){//}
     public function registerPurchaseEntry(
         Purchase $purchase,
         User $user
@@ -302,7 +298,7 @@ class InventoryService
                 'reference_type' => 'order',
                 'reference_id' => $order->id,
                 'movement_date' => now(),
-                'notes' => 'Salida de inventario por venta',
+                'notes' => "Salida de inventario por venta / Orden #{$order->id}",
             ]);
 
             foreach ($order->details as $detail) {
@@ -327,6 +323,46 @@ class InventoryService
                     'quantity' => $detail->quantity,
                     'unit_cost' => $product->cost,
                 ]);
+            }
+
+            return $movement->load('details.product');
+        });
+    }
+
+    public function registerCancellationReturn(
+        Order $order,
+        User $user
+    ): InventoryMovement {
+
+        return DB::transaction(function () use ($order, $user) {
+
+            $movement = InventoryMovement::create([
+                'user_id' => $user->id,
+                'type' => InventoryMovementType::RETURN_ENTRY,
+                'reference_type' => 'order',
+                'reference_id' => $order->id,
+                'movement_date' => now(),
+                'notes' => "Devolución de stock por cambio de estado/cancelación de Orden #{$order->id}",
+            ]);
+
+            foreach ($order->details as $detail) {
+
+                $product = Product::query()
+                    ->lockForUpdate()
+                    ->find($detail->product_id);
+
+                if ($product) {
+                    $quantity = (float) $detail->quantity;
+
+                    $product->stock = round((float) $product->stock + $quantity, 2);
+                    $product->save();
+
+                    $movement->details()->create([
+                        'product_id' => $product->id,
+                        'quantity' => $quantity,
+                        'unit_cost' => $product->cost,
+                    ]);
+                }
             }
 
             return $movement->load('details.product');
@@ -405,7 +441,6 @@ class InventoryService
     {
         $product = Product::findOrFail($productId);
 
-        // Consulta de detalles de movimientos del producto con sus relaciones
         $details = InventoryMovementDetail::with('movement')
             ->where('product_id', $productId)
             ->whereHas('movement', function ($query) use ($startDate, $endDate) {
@@ -435,7 +470,6 @@ class InventoryService
             $unitCost = (float) $detail->unit_cost;
             $totalCost = $quantity * $unitCost;
 
-            // Determinar si es Entrada o Salida según el tipo de movimiento
             $isEntry = in_array($typeValue, [
                 'INITIAL_STOCK',
                 'PURCHASE_ENTRY',

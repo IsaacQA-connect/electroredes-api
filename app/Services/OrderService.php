@@ -24,7 +24,6 @@ class OrderService
         return DB::transaction(function () use ($data, $user) {
 
             $subtotal = 0;
-
             $details = [];
 
             foreach ($data['details'] as $detail) {
@@ -51,11 +50,8 @@ class OrderService
                 }
 
                 $unitPrice = $product->sale_price;
-
                 $lineSubtotal = $unitPrice * $detail['quantity'];
-
                 $subtotal += $lineSubtotal;
-
                 $details[] = [
                     'product_id' => $product->id,
                     'quantity' => $detail['quantity'],
@@ -113,6 +109,63 @@ class OrderService
             $order->load('details.product', 'payments');
 
             return $order;
+        });
+    }
+
+    public function updateStatus(Order $order, OrderStatus|string $newStatus, User $user): Order
+    {
+        if (is_string($newStatus)) {
+            $newStatus = OrderStatus::from($newStatus);
+        }
+
+        $oldStatus = $order->status;
+
+        // Si el estado enviado es el mismo que ya tiene, no hacemos nada
+        if ($oldStatus === $newStatus) {
+            return $order;
+        }
+
+        return DB::transaction(function () use ($order, $oldStatus, $newStatus, $user) {
+
+            // Evaluamos si el stock ya estaba descontado o si debe estarlo ahora
+            $wasDeducted = ($oldStatus === OrderStatus::COMPLETED);
+            $willBeDeducted = ($newStatus === OrderStatus::COMPLETED);
+
+            // 🟢 CASO 1: Pasa a COMPLETED (desde PENDING o CANCELLED)
+            // -> Debemos verificar stock y realizar la salida de inventario.
+            if (!$wasDeducted && $willBeDeducted) {
+                $order->load('details.product');
+                
+                foreach ($order->details as $detail) {
+                    if ($detail->product->stock < $detail->quantity) {
+                        throw ValidationException::withMessages([
+                            'stock' => [
+                                "Stock insuficiente para {$detail->product->name}. Disponible: {$detail->product->stock}"
+                            ],
+                        ]);
+                    }
+                }
+
+                $this->inventoryService->registerSaleExit($order, $user);
+            }
+
+            // 🔴 CASO 2: Sale de COMPLETED (pasa a PENDING o CANCELLED)
+            // -> Se debe devolver el stock previamente descontado.
+            if ($wasDeducted && !$willBeDeducted) {
+                if (method_exists($this->inventoryService, 'registerCancellationReturn')) {
+                    $this->inventoryService->registerCancellationReturn($order, $user);
+                }
+            }
+
+            // 🟡 CASO 3: Transición entre PENDING y CANCELLED (o viceversa)
+            // -> No toca el inventario en absoluto.
+
+            // Actualizamos el estado en la base de datos
+            $order->update([
+                'status' => $newStatus,
+            ]);
+
+            return $order->fresh(['details.product', 'payments', 'customer']);
         });
     }
 
