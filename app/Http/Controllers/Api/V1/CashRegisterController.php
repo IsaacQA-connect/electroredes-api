@@ -17,14 +17,24 @@ class CashRegisterController extends Controller
         protected CashRegisterService $cashRegisterService
     ) {}
 
-    public function current(Request $request): JsonResponse
+    public function current(Request $request)
     {
-        $register = CashRegister::with(['movements.user', 'user'])
-            ->where('user_id', $request->user()->id)
+        // Buscar solo cajas con estado OPEN del usuario (o generales según tu lógica)
+        $cashRegister = CashRegister::with(['user', 'movements'])
             ->where('status', 'OPEN')
+            ->latest()
             ->first();
 
-        return response()->json(['data' => $register]);
+        if (!$cashRegister) {
+            return response()->json([
+                'message' => 'No hay una caja abierta actualmente',
+                'data' => null
+            ], 200); // Retornar 200 con data null facilita el manejo en Vue
+        }
+
+        return response()->json([
+            'data' => $cashRegister
+        ]);
     }
 
     public function open(OpenCashRegisterRequest $request): JsonResponse
@@ -37,13 +47,32 @@ class CashRegisterController extends Controller
         ], 201);
     }
 
-    public function close(CloseCashRegisterRequest $request, CashRegister $cashRegister): JsonResponse
+    public function close(Request $request, $id)
     {
-        $register = $this->cashRegisterService->close($cashRegister, $request->validated());
+        // 1. Validar que llegue 'actual_balance'
+        $request->validate([
+            'actual_balance' => 'required|numeric|min:0',
+            'notes' => 'nullable|string',
+        ]);
+
+        $cashRegister = CashRegister::findOrFail($id);
+
+        // 2. Verificar que no esté cerrada ya
+        if ($cashRegister->status === 'CLOSED') {
+            return response()->json(['message' => 'La caja ya se encuentra cerrada.'], 400);
+        }
+
+        // 3. Actualizar la caja (MANTENIENDO el user_id original)
+        $cashRegister->update([
+            'actual_balance' => $request->actual_balance,
+            'notes' => $request->notes,
+            'status' => 'CLOSED',
+            'closed_at' => now(),
+        ]);
 
         return response()->json([
-            'message' => 'Caja cerrada correctamente.',
-            'data' => $register,
+            'message' => 'Caja cerrada exitosamente.',
+            'data' => $cashRegister
         ]);
     }
 

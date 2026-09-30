@@ -20,7 +20,7 @@ class ProductController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $filters = $request->only(['search', 'category_id', 'low_stock']);
+        $filters = $request->only(['search', 'category_id', 'brand_id', 'low_stock']);
 
         if (isset($filters['low_stock'])) {
             $filters['low_stock'] = filter_var($filters['low_stock'], FILTER_VALIDATE_BOOLEAN);

@@ -49,7 +49,13 @@ class ProductResource extends JsonResource
                     'name' => $this->category->name,
                 ];
             }),
-
+            'brand_id' => $this->brand_id,
+            'brand' => $this->whenLoaded('brand', function () {
+                return [
+                    'id' => $this->brand->id,
+                    'name' => $this->brand->name,
+                ];
+            }),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

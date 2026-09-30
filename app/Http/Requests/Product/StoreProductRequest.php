@@ -30,6 +30,8 @@ class StoreProductRequest extends FormRequest
                 'exists:categories,id',
             ],
 
+            'brand_id' => 'nullable|exists:brands,id',
+
             'code' => [
                 'required',
                 'string',

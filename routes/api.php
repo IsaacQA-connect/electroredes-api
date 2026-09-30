@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\ProductController;
 use App\Http\Controllers\Api\V1\PurchaseController;
 use App\Http\Controllers\Api\V1\SupplierController;
+use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\BrandController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -21,8 +23,9 @@ Route::prefix('v1')->group(function () {
     Route::get('products', [ProductController::class, 'index']);
     Route::get('products/{product}', [ProductController::class, 'show']);
     Route::get('categories', [CategoryController::class, 'index']);
-    Route::get('categories/{category}', [CategoryController::class, 'show']);
-
+    Route::get('categories/{category}', [CategoryController::class, 'show']);    
+    Route::get('/brands', [BrandController::class, 'index']);
+    Route::post('/brands', [BrandController::class, 'store']);
     Route::post('payments/webhook', [PaymentController::class, 'handleWebhook']);
 
     Route::prefix('auth')->group(function () {
@@ -89,5 +92,7 @@ Route::prefix('v1')->group(function () {
         // Pasarela de Pagos
         Route::post('payments/create-preference', [PaymentController::class, 'createPreference']);
         Route::post('payments/confirm', [PaymentController::class, 'confirmPayment']);
+
+        Route::get('/dashboard/metrics', [DashboardController::class, 'metrics']);
     });
 });

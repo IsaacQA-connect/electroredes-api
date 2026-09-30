@@ -53,4 +53,17 @@ class Order extends Model
     {
         return $this->hasMany(OrderReturn::class);
     }
+
+    protected static function booted(): void
+    {
+        static::created(function (Order $order): void {
+            // Genera el código usando el ID auto-incremental recién creado
+            // Ejemplo: ORD-2026-00001
+            $year = date('Y');
+            $paddedId = str_pad((string) $order->id, 5, '0', STR_PAD_LEFT);
+
+            $order->code = "ORD-{$year}-{$paddedId}";
+            $order->saveQuietly(); // Guarda sin re-disparar eventos
+        });
+    }
 }

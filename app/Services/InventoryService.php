@@ -79,7 +79,7 @@ class InventoryService
                 ]);
             }
 
-            return $movement->load('details.product');
+            return $movement->load('details.product.brand');
         });
     }
 
@@ -132,21 +132,24 @@ class InventoryService
                 ]);
             }
 
-            return $movement->load('details.product');
+            return $movement->load('details.product.brand');
         });
     }
 
     public function getStock(array $filters = [])
     {
         return Product::query()
-            ->with('category')
+            ->with(['category', 'brand']) // <-- Cargar relación brand
             ->when(
                 $filters['search'] ?? null,
                 function ($query, $search) {
                     $query->where(function ($query) use ($search) {
                         $query->where('name', 'like', "%{$search}%")
                             ->orWhere('code', 'like', "%{$search}%")
-                            ->orWhere('barcode', 'like', "%{$search}%");
+                            ->orWhere('barcode', 'like', "%{$search}%")
+                            ->orWhereHas('brand', function ($q) use ($search) { // <-- Buscar por nombre de marca
+                                $q->where('name', 'like', "%{$search}%");
+                            });
                     });
                 }
             )
@@ -154,6 +157,11 @@ class InventoryService
                 $filters['category_id'] ?? null,
                 fn ($query, $categoryId) =>
                     $query->where('category_id', $categoryId)
+            )
+            ->when(
+                $filters['brand_id'] ?? null, // <-- Filtro opcional por ID de marca
+                fn ($query, $brandId) =>
+                    $query->where('brand_id', $brandId)
             )
             ->orderBy('name')
             ->paginate(20)
@@ -163,7 +171,7 @@ class InventoryService
     public function getLowStock()
     {
         return Product::query()
-            ->with('category')
+            ->with(['category', 'brand']) // <-- Cargar relación brand
             ->whereColumn('stock', '<=', 'minimum_stock')
             ->where('status', true)
             ->orderBy('stock')
@@ -175,7 +183,7 @@ class InventoryService
         return InventoryMovement::query()
             ->with([
                 'user',
-                'details.product',
+                'details.product.brand', // <-- Cargar relación brand del producto
             ])
             ->when(
                 $filters['type'] ?? null,
@@ -280,7 +288,7 @@ class InventoryService
 
             return $movement->load([
                 'user',
-                'details.product',
+                'details.product.brand',
             ]);
         });
     }
@@ -325,7 +333,7 @@ class InventoryService
                 ]);
             }
 
-            return $movement->load('details.product');
+            return $movement->load('details.product.brand');
         });
     }
 
@@ -365,7 +373,7 @@ class InventoryService
                 }
             }
 
-            return $movement->load('details.product');
+            return $movement->load('details.product.brand');
         });
     }
 
@@ -409,7 +417,7 @@ class InventoryService
                 ]);
             }
 
-            return $movement->load('details.product');
+            return $movement->load('details.product.brand');
         });
     }
 
@@ -439,7 +447,8 @@ class InventoryService
 
     public function getKardexByProduct(int $productId, ?string $startDate = null, ?string $endDate = null): array
     {
-        $product = Product::findOrFail($productId);
+        // Cargar producto junto con su relación de marca
+        $product = Product::with('brand')->findOrFail($productId);
 
         $details = InventoryMovementDetail::with('movement')
             ->where('product_id', $productId)
@@ -529,6 +538,7 @@ class InventoryService
                 'id' => $product->id,
                 'name' => $product->name,
                 'code' => $product->code ?? $product->barcode ?? 'N/A',
+                'brand' => $product->brand?->name ?? 'Sin Marca', // <-- Nombre de la marca añadido
                 'stock' => $product->stock,
                 'cost' => $product->cost,
             ],

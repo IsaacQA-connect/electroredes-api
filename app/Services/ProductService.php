@@ -12,7 +12,7 @@ class ProductService
 {
     public function getAll(array $filters = []): LengthAwarePaginator
     {
-        $query = Product::query()->with('category');
+        $query = Product::query()->with('category', 'brand');
 
         if (!empty($filters['search'])) {
             $search = $filters['search'];
@@ -25,6 +25,10 @@ class ProductService
 
         if (!empty($filters['category_id'])) {
             $query->where('category_id', $filters['category_id']);
+        }
+
+        if (!empty($filters['brand_id'])) {
+            $query->where('brand_id', $filters['brand_id']);
         }
 
         if (isset($filters['low_stock']) && $filters['low_stock'] === true) {
