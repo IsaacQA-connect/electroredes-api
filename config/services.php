@@ -45,4 +45,9 @@ return [
         'public_key' => env('MERCADOPAGO_PUBLIC_KEY'),
     ],
 
+    'apisperu' => [
+        'token' => env('APISPERU_TOKEN'),
+        'url'   => env('APISPERU_URL', 'https://facturacion.apisperu.com/api/v1'),
+    ],
+
 ];

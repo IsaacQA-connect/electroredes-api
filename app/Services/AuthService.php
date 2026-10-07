@@ -15,9 +15,17 @@ class AuthService
     {
         $user = User::with('role', 'customer')->where('email', $credentials['email'])->first();
 
+        // 1. Validar si existe el usuario y si la contraseña es correcta
         if (!$user || !Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Las credenciales proporcionadas son incorrectas.'],
+            ]);
+        }
+
+        // 2. Validar si la cuenta ya se encuentra verificada
+        if (!$user->hasVerifiedEmail()) {
+            throw ValidationException::withMessages([
+                'email' => ['Tu cuenta aún no ha sido verificada. Por favor, revisa tu correo electrónico.'],
             ]);
         }
 
@@ -63,6 +71,6 @@ class AuthService
 
     public function logout(User $user): void
     {
-        $user::currentAccessToken()->delete();
+        $user->currentAccessToken()->delete();
     }
 }

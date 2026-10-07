@@ -20,7 +20,11 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        env('FRONTEND_URL', 'https://electroredes.soportecenter.com', 'http://localhost:5173'),
+        'https://electroredes.soportecenter.com',
+        'http://localhost:5173',
+        'https://localhost:5173',
+        'https://app.flutterflow.io',
+        '*', // Permite conexiones desde FlutterFlow Test Mode, dispositivos móviles y emuladores
     ],
 
     'allowed_origins_patterns' => [],
