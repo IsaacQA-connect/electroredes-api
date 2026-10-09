@@ -49,6 +49,18 @@ class SocialAuthController extends Controller
                     'email_verified_at' => $existingUser->email_verified_at ?? now(),
                 ]);
 
+                // Asegurar que el usuario existente tenga su registro en customers
+                Customer::firstOrCreate(
+                    ['email' => $existingUser->email],
+                    [
+                        'user_id'         => $existingUser->id,
+                        'name'            => $existingUser->name,
+                        'document_type'   => null,
+                        'document_number' => null,
+                        'status'          => true,
+                    ]
+                );
+
                 return $existingUser;
             }
 
@@ -64,17 +76,19 @@ class SocialAuthController extends Controller
                 'email_verified_at' => now(), // Los correos de Google ya vienen verificados
             ]);
 
-            // 3. Crear el registro asociado de Customer
-            Customer::create([
-                'user_id'         => $newUser->id,
-                'document_type'   => 'DNI',
-                'document_number' => '00000000', // Se solicitará completar en su perfil
-                'name'            => $newUser->name,
-                'phone'           => null,
-                'email'           => $newUser->email,
-                'address'         => null,
-                'status'          => true,
-            ]);
+            // 3. Crear el registro asociado de Customer (Documentos en NULL para completar en checkout)
+            Customer::firstOrCreate(
+                ['email' => $newUser->email],
+                [
+                    'user_id'         => $newUser->id,
+                    'document_type'   => null,
+                    'document_number' => null,
+                    'name'            => $newUser->name,
+                    'phone'           => null,
+                    'address'         => null,
+                    'status'          => true,
+                ]
+            );
 
             return $newUser;
         });
