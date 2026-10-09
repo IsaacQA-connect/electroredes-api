@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->nullable()->constrained(); // Si proviene de una venta
-            $table->foreignId('client_id')->constrained();
+            $table->foreignId('customer_id')->constrained();
             $table->foreignId('user_id')->constrained(); // Usuario que emite
             
             // Tipo de documento (01: Factura, 03: Boleta, 07: Nota Crédito, 08: Nota Débito)

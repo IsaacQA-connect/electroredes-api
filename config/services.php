@@ -50,4 +50,10 @@ return [
         'url'   => env('APISPERU_URL', 'https://facturacion.apisperu.com/api/v1'),
     ],
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', 'https://electroredes-api.test/api/v1/auth/google/callback'),
+    ],
+
 ];

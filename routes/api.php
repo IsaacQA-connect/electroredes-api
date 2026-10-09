@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Auth\Events\Verified;
 use App\Http\Controllers\Api\V1\Admin\UserController;
+use App\Http\Controllers\Api\V1\Auth\SocialAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -32,6 +33,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/brands', [BrandController::class, 'index']);
     Route::post('/brands', [BrandController::class, 'store']);
     Route::post('payments/webhook', [PaymentController::class, 'handleWebhook']);
+    Route::get('/auth/{provider}/redirect', [SocialAuthController::class, 'redirectToProvider']);
+    Route::get('/auth/{provider}/callback', [SocialAuthController::class, 'handleProviderCallback']);
 
     // 1. Olvidó contraseña (Solicitar token)
     Route::post('/forgot-password', [AuthController::class, 'sendResetLink']);
