@@ -46,10 +46,19 @@ return [
     ],
 
     'apisperu' => [
-        'token' => env('APISPERU_TOKEN'),
-        'url'   => env('APISPERU_URL', 'https://facturacion.apisperu.com/api/v1'),
+        'url'             => env('APISPERU_URL', 'https://facturacion.apisperu.com/api/v1'),
+        'token'           => env('APISPERU_TOKEN'),
+        'ruc'             => env('APISPERU_RUC_EMISOR'),
+        'razon_social'    => env('APISPERU_RAZON_SOCIAL', 'ELECTRO REDES S.A.C.'),
+        'nombre_comercial' => env('APISPERU_NOMBRE_COMERCIAL', 'ELECTRO REDES'),
+        'ubigeo'          => env('APISPERU_UBIGEO', '180101'),
+        'direccion'       => env('APISPERU_DIRECCION', 'Av. Principal 123'),
+        'departamento'    => env('APISPERU_DEPARTAMENTO', 'MOQUEGUA'),
+        'provincia'       => env('APISPERU_PROVINCIA', 'MARISCAL NIETO'),
+        'distrito'        => env('APISPERU_DISTRITO', 'MOQUEGUA'),
+        'serie_boleta'    => env('APISPERU_SERIE_BOLETA', 'B001'),
+        'serie_factura'   => env('APISPERU_SERIE_FACTURA', 'F001'),
     ],
-
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),

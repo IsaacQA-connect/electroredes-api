@@ -115,4 +115,50 @@ class AuthController extends Controller
             ? response()->json(['success' => true, 'message' => 'Tu contraseña ha sido restablecida con éxito.'])
             : response()->json(['success' => false, 'message' => __($status)], 400);
     }
+
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name'            => 'required|string|max:255',
+            'phone'           => 'nullable|string|max:20',
+            'document_type'   => 'nullable|string|in:DNI,RUC,CE,PASAPORTE',
+            'document_number' => 'nullable|string|max:20',
+            'address'         => 'nullable|string|max:500',
+        ]);
+
+        // 1. Actualizar usuario
+        $user->update([
+            'name' => $validated['name'],
+        ]);
+
+        // 2. Actualizar o crear registro en customers
+        $customer = $user->customer;
+
+        if ($customer) {
+            $customer->update([
+                'name'            => $validated['name'],
+                'phone'           => $validated['phone'],
+                'document_type'   => $validated['document_type'],
+                'document_number' => $validated['document_number'],
+                'address'         => $validated['address'],
+            ]);
+        } else {
+            $user->customer()->create([
+                'email'           => $user->email,
+                'name'            => $validated['name'],
+                'phone'           => $validated['phone'],
+                'document_type'   => $validated['document_type'],
+                'document_number' => $validated['document_number'],
+                'address'         => $validated['address'],
+                'status'          => true,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Perfil actualizado correctamente',
+            'user'    => $user->fresh()->load('customer', 'role'),
+        ]);
+    }
 }

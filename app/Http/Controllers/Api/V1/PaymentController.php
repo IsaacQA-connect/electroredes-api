@@ -7,6 +7,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Services\InvoiceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use MercadoPago\MercadoPagoConfig;
@@ -15,6 +16,10 @@ use MercadoPago\Client\Payment\PaymentClient;
 
 class PaymentController extends Controller
 {
+    public function __construct(
+        protected InvoiceService $invoiceService
+    ) {}
+
     private function getAccessToken(): ?string
     {
         return config('services.mercadopago.access_token') ?? env('MERCADOPAGO_ACCESS_TOKEN');
@@ -44,32 +49,32 @@ class PaymentController extends Controller
             $items = [];
             foreach ($order->details as $detail) {
                 $items[] = [
-                    'id' => (string) $detail->product_id,
-                    'title' => $detail->product->name ?? 'Producto Electroredes',
-                    'quantity' => (int) $detail->quantity,
-                    'unit_price' => (float) ($detail->unit_price ?? $detail->price ?? 0),
+                    'id'          => (string) $detail->product_id,
+                    'title'       => $detail->product->name ?? 'Producto Electroredes',
+                    'quantity'    => (int) $detail->quantity,
+                    'unit_price'  => (float) ($detail->unit_price ?? $detail->price ?? 0),
                     'currency_id' => 'PEN',
                 ];
             }
 
             $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:5173'), '/');
-            $backendUrl = rtrim(env('APP_URL', 'https://apielectroredes.soportecenter.com'), '/');
+            $backendUrl  = rtrim(env('APP_URL', 'https://apielectroredes.soportecenter.com'), '/');
 
             $preferenceData = [
-                'items' => $items,
+                'items'              => $items,
                 'external_reference' => (string) $order->id,
-                'payer' => [
-                    'email' => $order->user->email ?? 'cliente_prueba@test.com',
-                    'name' => $order->user->name ?? 'Cliente',
+                'payer'              => [
+                    'email'   => $order->user->email ?? 'cliente_prueba@test.com',
+                    'name'    => $order->user->name ?? 'Cliente',
                     'surname' => 'Prueba',
                 ],
                 'back_urls' => [
-                    'success' => $frontendUrl . '/',
-                    'failure' => $frontendUrl . '/cart',
-                    'pending' => $frontendUrl . '/',
+                    'success' => $frontendUrl . '/payment/callback',
+                    'failure' => $frontendUrl . '/payment/callback',
+                    'pending' => $frontendUrl . '/payment/callback',
                 ],
-                'notification_url' => $backendUrl . '/api/v1/payments/webhook', //cambio
-                'binary_mode' => true,
+                'notification_url'   => $backendUrl . '/api/v1/payments/webhook',
+                'binary_mode'        => true,
             ];
 
             if (str_starts_with($frontendUrl, 'https://')) {
@@ -80,13 +85,13 @@ class PaymentController extends Controller
             $preference = $client->create($preferenceData);
 
             return response()->json([
-                'id' => $preference->id,
-                'init_point' => $preference->init_point,
+                'id'                 => $preference->id,
+                'init_point'         => $preference->init_point,
                 'sandbox_init_point' => $preference->sandbox_init_point,
             ]);
 
         } catch (\MercadoPago\Exceptions\MPApiException $e) {
-            $apiResponse = $e->getApiResponse();
+            $apiResponse  = $e->getApiResponse();
             $errorContent = $apiResponse ? $apiResponse->getContent() : [];
 
             Log::error('Error Mercado Pago API:', ['status' => $e->getStatusCode(), 'response' => $errorContent]);
@@ -118,7 +123,7 @@ class PaymentController extends Controller
 
                     if ($mpPayment) {
                         $orderId = $mpPayment->external_reference;
-                        $order = Order::find($orderId);
+                        $order   = Order::with(['details.product', 'customer', 'user', 'payments'])->find($orderId);
 
                         if ($order) {
                             $mpStatus = strtoupper($mpPayment->status);
@@ -126,29 +131,37 @@ class PaymentController extends Controller
                             // Mapeo a OrderStatus Enum
                             if ($mpStatus === 'APPROVED') {
                                 $order->update(['status' => OrderStatus::COMPLETED->value]);
+
+                                // DISPARAR FACTURACIÓN AUTOMÁTICA A SUNAT
+                                try {
+                                    $this->invoiceService->createInvoiceFromOrder($order);
+                                } catch (\Exception $e) {
+                                    Log::error('Error emitiendo factura desde Webhook MP: ' . $e->getMessage());
+                                }
+
                             } elseif (in_array($mpStatus, ['REJECTED', 'CANCELLED'])) {
                                 $order->update(['status' => OrderStatus::CANCELLED->value]);
                             }
 
-                            // Mapeo a PaymentStatus Enum y uso de payment_date
+                            // Mapeo a PaymentStatus Enum
                             $paymentStatus = match ($mpStatus) {
-                                'APPROVED' => PaymentStatus::APPROVED->value,
-                                'REJECTED' => PaymentStatus::REJECTED->value,
+                                'APPROVED'  => PaymentStatus::APPROVED->value,
+                                'REJECTED'  => PaymentStatus::REJECTED->value,
                                 'CANCELLED' => PaymentStatus::CANCELLED->value,
-                                'REFUNDED' => PaymentStatus::REFUNDED->value,
-                                default => PaymentStatus::PENDING->value,
+                                'REFUNDED'  => PaymentStatus::REFUNDED->value,
+                                default     => PaymentStatus::PENDING->value,
                             };
 
                             Payment::updateOrCreate(
                                 ['order_id' => $order->id],
                                 [
-                                    'method' => 'ONLINE_PAYMENT',
-                                    'amount' => $mpPayment->transaction_amount,
-                                    'status' => $paymentStatus,
+                                    'method'           => 'ONLINE_PAYMENT',
+                                    'amount'           => $mpPayment->transaction_amount,
+                                    'status'           => $paymentStatus,
                                     'transaction_code' => (string) $mpPayment->id,
-                                    'payer_email' => $mpPayment->payer->email ?? $order->user->email ?? null,
-                                    'raw_response' => json_encode($mpPayment),
-                                    'payment_date' => $mpPayment->date_approved ?? now(),
+                                    'payer_email'      => $mpPayment->payer->email ?? $order->user->email ?? null,
+                                    'raw_response'     => json_encode($mpPayment),
+                                    'payment_date'     => $mpPayment->date_approved ?? now(),
                                 ]
                             );
                         }
@@ -165,18 +178,16 @@ class PaymentController extends Controller
     public function confirmPayment(Request $request)
     {
         $request->validate([
-            'order_id' => 'required|exists:orders,id',
+            'order_id'   => 'required|exists:orders,id',
             'payment_id' => 'required',
-            'status' => 'required',
+            'status'     => 'required',
         ]);
 
-        // Cargar la relación user para asegurar el correo por defecto
-        $order = Order::with('user')->findOrFail($request->order_id);
+        $order = Order::with(['details.product', 'customer', 'user', 'payments'])->findOrFail($request->order_id);
         $rawStatus = strtoupper($request->status);
 
-        // Inicialización global de variables antes del bloque try
-        $amount = $order->total ?? 0;
-        $payerEmail = $order->user->email ?? null;
+        $amount      = $order->total ?? 0;
+        $payerEmail  = $order->user->email ?? null;
         $rawResponse = null;
 
         try {
@@ -187,9 +198,9 @@ class PaymentController extends Controller
                 $mpPayment = $client->get($request->payment_id);
 
                 if ($mpPayment) {
-                    $rawStatus = strtoupper($mpPayment->status);
-                    $amount = $mpPayment->transaction_amount ?? $amount;
-                    $payerEmail = $mpPayment->payer->email ?? $payerEmail;
+                    $rawStatus   = strtoupper($mpPayment->status);
+                    $amount      = $mpPayment->transaction_amount ?? $amount;
+                    $payerEmail  = $mpPayment->payer->email ?? $payerEmail;
                     $rawResponse = json_encode($mpPayment);
                 }
             }
@@ -200,6 +211,14 @@ class PaymentController extends Controller
         if (in_array($rawStatus, ['APPROVED', 'SUCCESS'])) {
             $order->update(['status' => OrderStatus::COMPLETED->value]);
             $paymentStatus = PaymentStatus::APPROVED->value;
+
+            // DISPARAR FACTURACIÓN AUTOMÁTICA A SUNAT
+            try {
+                $this->invoiceService->createInvoiceFromOrder($order);
+            } catch (\Exception $e) {
+                Log::error('Error emitiendo factura desde confirmPayment: ' . $e->getMessage());
+            }
+
         } else {
             $paymentStatus = PaymentStatus::PENDING->value;
         }
@@ -207,13 +226,13 @@ class PaymentController extends Controller
         $payment = Payment::updateOrCreate(
             ['order_id' => $order->id],
             [
-                'method' => 'ONLINE_PAYMENT',
-                'amount' => $amount,
-                'status' => $paymentStatus,
+                'method'           => 'ONLINE_PAYMENT',
+                'amount'           => $amount,
+                'status'           => $paymentStatus,
                 'transaction_code' => (string) $request->payment_id,
-                'payer_email' => $payerEmail,
-                'raw_response' => $rawResponse,
-                'payment_date' => now(),
+                'payer_email'      => $payerEmail,
+                'raw_response'     => $rawResponse,
+                'payment_date'     => now(),
             ]
         );
 

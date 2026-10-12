@@ -86,4 +86,11 @@ class Invoice extends Model
     {
         return $this->series . '-' . str_pad((string) $this->number, 8, '0', STR_PAD_LEFT);
     }
+
+    // app/Models/Invoice.php
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
 }

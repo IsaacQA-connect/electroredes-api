@@ -95,6 +95,7 @@ Route::prefix('v1')->group(function () {
 
         // Autenticación de Usuario
         Route::get('auth/me', [AuthController::class, 'me']);
+        Route::put('auth/me', [AuthController::class, 'updateProfile']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
         // Reenviar correo de verificación (máximo 6 intentos por minuto)
         Route::post('/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
@@ -137,6 +138,9 @@ Route::prefix('v1')->group(function () {
         Route::get('orders/{order}/returns', [OrderReturnController::class, 'index']);
         Route::get('returns/{orderReturn}', [OrderReturnController::class, 'show']);
         Route::put('orders/{order}', [OrderController::class, 'update']);
+        // Rutas de descarga de PDF / XML
+        Route::get('orders/{order}/download-pdf', [OrderController::class, 'downloadPdf']);
+        Route::get('orders/{order}/download-xml', [OrderController::class, 'downloadXml']);
 
         // Proveedores
         Route::apiResource('suppliers', SupplierController::class);
