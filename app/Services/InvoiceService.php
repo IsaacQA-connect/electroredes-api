@@ -143,6 +143,7 @@ class InvoiceService
             $invoice = Invoice::create([
                 'user_id'           => $user->id,
                 'order_id'          => $data['order_id'] ?? null,
+                'customer_id'       => $order->customer_id ?? null,
                 'document_type'     => $documentType,
                 'series'            => $data['series'],
                 'number'            => $number,
