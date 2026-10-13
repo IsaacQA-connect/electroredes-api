@@ -36,7 +36,6 @@ class InvoiceService
             $subtotal = $quantity * $unitPrice;
 
             if ($taxType === 'TAXED') {
-                // Desglosar el IGV del precio unitario
                 $valueBase = $subtotal / (1 + $igvRate);
                 $opTaxed += $valueBase;
             } elseif ($taxType === 'EXONERATED') {
@@ -63,69 +62,83 @@ class InvoiceService
      */
     public function createInvoiceFromOrder(Order $order): Invoice
     {
-        // 1. Evitar duplicidad si la orden ya tiene factura generada
-        $existingInvoice = Invoice::where('order_id', $order->id)->first();
-        if ($existingInvoice) {
-            return $existingInvoice;
-        }
+        // 🔒 BLOQUEO PESIMISTA: Evita que Webhook y confirmPayment generen 2 facturas en simultáneo
+        return DB::transaction(function () use ($order) {
+            $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
 
-        $isFactura = strtoupper($order->invoice_type ?? 'BOLETA') === 'FACTURA';
-        $docType = $isFactura ? '01' : '03'; // 01 = Factura, 03 = Boleta
-        $series  = $isFactura 
-            ? config('services.apisperu.serie_factura', 'F001') 
-            : config('services.apisperu.serie_boleta', 'B001');
+            // 1. Evitar duplicidad si la orden ya tiene factura generada
+            $existingInvoice = Invoice::where('order_id', $lockedOrder->id)->first();
+            if ($existingInvoice) {
+                return $existingInvoice;
+            }
 
-        // Determinar tipo de documento cliente (6: RUC, 1: DNI, 0: Sin doc)
-        $clientDocType = '1';
-        if ($isFactura || strlen($order->document_number) === 11) {
-            $clientDocType = '6';
-        } elseif (!$order->document_number) {
-            $clientDocType = '0';
-        }
+            $isFactura = strtoupper($lockedOrder->invoice_type ?? 'BOLETA') === 'FACTURA';
+            $docType = $isFactura ? '01' : '03'; // 01 = Factura, 03 = Boleta
+            $series  = $isFactura 
+                ? config('services.apisperu.serie_factura', 'F001') 
+                : config('services.apisperu.serie_boleta', 'B001');
 
-        // Mapear los items de la Orden
-        $items = $order->details->map(function ($detail) {
-            return [
-                'product_id'   => $detail->product_id,
-                'product_name' => $detail->product->name ?? 'Producto',
-                'quantity'     => $detail->quantity,
-                'unit_price'   => $detail->unit_price,
-                'tax_type'     => 'TAXED'
+            // Determinar tipo de documento cliente (6: RUC, 1: DNI, 0: Sin doc)
+            $clientDocType = '1';
+            if ($isFactura || strlen($lockedOrder->document_number) === 11) {
+                $clientDocType = '6';
+            } elseif (!$lockedOrder->document_number) {
+                $clientDocType = '0';
+            }
+
+            // Fallback de Dirección de Cliente para evitar NULL
+            $clientAddress = $lockedOrder->shipping_address 
+                ?? $lockedOrder->address 
+                ?? $lockedOrder->customer->address 
+                ?? 'CIUDAD';
+
+            // Mapear los items de la Orden
+            $items = $lockedOrder->details->map(function ($detail) {
+                return [
+                    'product_id'   => $detail->product_id,
+                    'product_name' => $detail->product->name ?? 'Producto',
+                    'quantity'     => $detail->quantity,
+                    'unit_price'   => $detail->unit_price,
+                    'tax_type'     => 'TAXED'
+                ];
+            })->toArray();
+
+            $totals = $this->calculateTotals($items);
+
+            $payload = [
+                'document_type'     => $docType,
+                'series'            => $series,
+                'client_doc_type'   => $clientDocType,
+                'client_doc_number' => $lockedOrder->document_number ?? '00000000',
+                'client_name'       => $lockedOrder->business_name ?? $lockedOrder->customer->name ?? 'CLIENTE VARIOS',
+                'client_address'    => $clientAddress,
+                'op_taxed'          => $totals['op_taxed'],
+                'igv'               => $totals['igv'],
+                'total'             => $totals['total'],
+                'payment_method'    => $lockedOrder->payments->first()->method ?? 'ONLINE_PAYMENT',
+                'items'             => $items,
+                'order_id'          => $lockedOrder->id,
+                'customer_id'       => $lockedOrder->customer_id ?? null,
             ];
-        })->toArray();
 
-        $totals = $this->calculateTotals($items);
+            // Obtener o asignar usuario del sistema
+            $user = $lockedOrder->user ?? User::whereHas('role', fn($q) => $q->where('name', 'ADMIN'))->first() ?? auth()->user();
 
-        $payload = [
-            'document_type'     => $docType,
-            'series'            => $series,
-            'client_doc_type'   => $clientDocType,
-            'client_doc_number' => $order->document_number ?? '00000000',
-            'client_name'       => $order->business_name ?? $order->customer->name ?? 'CLIENTE VARIOS',
-            'client_address'    => $order->customer->address ?? null,
-            'op_taxed'          => $totals['op_taxed'],
-            'igv'               => $totals['igv'],
-            'total'             => $totals['total'],
-            'payment_method'    => $order->payments->first()->method ?? 'ONLINE_PAYMENT',
-            'items'             => $items,
-            'order_id'          => $order->id,
-            'customer_id'       => $order->customer_id ?? null,
-        ];
+            $invoice = $this->createInvoice($payload, $user);
 
-        // Obtener o asignar usuario del sistema
-        $user = $order->user ?? User::whereHas('role', fn($q) => $q->where('name', 'ADMIN'))->first() ?? auth()->user();
+            // Actualizar datos de comprobante en la orden para consulta en Vue
+            $invoiceNumber = "{$invoice->series}-" . str_pad($invoice->number, 8, '0', STR_PAD_LEFT);
+            $pdfUrl = $invoice->pdf_url ?? $invoice->pdf_path ?? null;
+            $xmlUrl = $invoice->xml_url ?? $invoice->xml_path ?? null;
 
-        $invoice = $this->createInvoice($payload, $user);
+            $lockedOrder->update([
+                'invoice_number' => $invoiceNumber,
+                'pdf_url'        => $pdfUrl,
+                'xml_url'        => $xmlUrl,
+            ]);
 
-        // Actualizar datos de comprobante en la orden para consulta en Vue
-        $invoiceNumber = "{$invoice->series}-" . str_pad($invoice->number, 8, '0', STR_PAD_LEFT);
-        $order->update([
-            'invoice_number' => $invoiceNumber,
-            'pdf_url'        => $invoice->pdf_path ?? null,
-            'xml_url'        => $invoice->xml_path ?? null,
-        ]);
-
-        return $invoice;
+            return $invoice;
+        });
     }
 
     /**
@@ -140,7 +153,7 @@ class InvoiceService
             // 1. Correlativo atómico
             $number = $this->seriesService->getNextCorrelative($documentType, $data['series']);
 
-            // 2. Cabecera
+            // 2. Cabecera de Factura
             $invoice = Invoice::create([
                 'user_id'           => $user->id,
                 'order_id'          => $data['order_id'] ?? null,
@@ -151,7 +164,7 @@ class InvoiceService
                 'client_doc_type'   => $data['client_doc_type'],
                 'client_doc_number' => $data['client_doc_number'],
                 'client_name'       => $data['client_name'],
-                'client_address'    => $data['client_address'] ?? null,
+                'client_address'    => $data['client_address'] ?? 'CIUDAD',
                 'currency'          => 'PEN',
                 'op_taxed'          => $data['op_taxed'],
                 'igv'               => $data['igv'],
@@ -160,7 +173,7 @@ class InvoiceService
                 'sunat_status'      => $documentType === 'NV' ? 'INTERNAL' : 'PENDING',
             ]);
 
-            // 3. Detalles de Comprobante
+            // 3. Detalles del comprobante
             foreach ($data['items'] as $item) {
                 $subtotal = $item['quantity'] * $item['unit_price'];
                 $itemIgv  = $subtotal - ($subtotal / 1.18);
@@ -176,7 +189,7 @@ class InvoiceService
                 ]);
             }
 
-            // 4. Descontar Inventario con registerSaleExit si proviene de una Orden
+            // 4. Descontar Inventario con registerSaleExit (posee control de idempotencia)
             if (!empty($data['order_id'])) {
                 $order = Order::with('details')->find($data['order_id']);
                 if ($order) {
@@ -209,31 +222,42 @@ class InvoiceService
 
     private function processSunatEmission(Invoice $invoice): void
     {
+        $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
+        $ruc = config('services.apisperu.ruc', config('app.company_ruc'));
+
+        // URLs públicas de PDF y XML en APIsPeru
+        $pdfUrl = "{$baseUrl}/invoice/pdf?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
+        $xmlUrl = "{$baseUrl}/invoice/xml?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
+
         $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details'));
 
         if (!$apisResult['success']) {
             $invoice->update([
                 'sunat_status'      => 'REJECTED',
-                'sunat_description' => $apisResult['message'] ?? 'Error de comunicación con SUNAT'
+                'sunat_description' => $apisResult['message'] ?? 'Error de comunicación con SUNAT',
+                'pdf_url'           => $pdfUrl,
+                'pdf_path'          => $pdfUrl,
+                'xml_url'           => $xmlUrl,
+                'xml_path'          => $xmlUrl,
             ]);
             return;
         }
 
         $resData = $apisResult['data'];
         $isAccepted = $resData['sunatResponse']['success'] ?? false;
-
-        $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
-        $ruc = config('services.apisperu.ruc', config('app.company_ruc'));
-
-        $pdfPath = "{$baseUrl}/invoice/pdf?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
-        $xmlPath = "{$baseUrl}/invoice/xml?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
+        $responseCode = $resData['sunatResponse']['cdrResponse']['code'] ?? ($resData['code'] ?? '0');
+        $cdrZip = $resData['sunatResponse']['cdrZip'] ?? ($resData['cdrZip'] ?? null);
 
         $invoice->update([
-            'sunat_status'      => $isAccepted ? 'ACCEPTED' : 'REJECTED',
-            'sunat_description' => $resData['sunatResponse']['cdrResponse']['description'] ?? 'Procesado por SUNAT',
-            'xml_path'          => $xmlPath,
-            'pdf_path'          => $pdfPath,
-            'cdr_path'          => $resData['cdrZip'] ?? null,
+            'sunat_status'        => $isAccepted ? 'ACCEPTED' : 'REJECTED',
+            'sunat_description'   => $resData['sunatResponse']['cdrResponse']['description'] ?? 'Procesado por SUNAT',
+            'sunat_response_code' => $responseCode,
+            'xml_url'             => $xmlUrl,
+            'xml_path'            => $xmlUrl,
+            'pdf_url'             => $pdfUrl,
+            'pdf_path'            => $pdfUrl,
+            'cdr_url'             => $cdrZip,
+            'cdr_path'            => $cdrZip,
         ]);
     }
 
