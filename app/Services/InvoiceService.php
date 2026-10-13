@@ -62,7 +62,7 @@ class InvoiceService
      */
     public function createInvoiceFromOrder(Order $order): Invoice
     {
-        // 🔒 BLOQUEO PESIMISTA: Evita que Webhook y confirmPayment generen 2 facturas en simultáneo
+        // 🔒 BLOQUEO PESIMISTA: Evita concurrencia entre Webhook y Frontend
         return DB::transaction(function () use ($order) {
             $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
 
@@ -86,10 +86,10 @@ class InvoiceService
                 $clientDocType = '0';
             }
 
-            // Fallback de Dirección de Cliente para evitar NULL
+            // Fallback seguro de dirección con navegación opcional (?->)
             $clientAddress = $lockedOrder->shipping_address 
                 ?? $lockedOrder->address 
-                ?? $lockedOrder->customer->address 
+                ?? $lockedOrder->customer?->address 
                 ?? 'CIUDAD';
 
             // Mapear los items de la Orden
@@ -110,7 +110,7 @@ class InvoiceService
                 'series'            => $series,
                 'client_doc_type'   => $clientDocType,
                 'client_doc_number' => $lockedOrder->document_number ?? '00000000',
-                'client_name'       => $lockedOrder->business_name ?? $lockedOrder->customer->name ?? 'CLIENTE VARIOS',
+                'client_name'       => $lockedOrder->business_name ?? $lockedOrder->customer?->name ?? 'CLIENTE VARIOS',
                 'client_address'    => $clientAddress,
                 'op_taxed'          => $totals['op_taxed'],
                 'igv'               => $totals['igv'],
@@ -126,7 +126,7 @@ class InvoiceService
 
             $invoice = $this->createInvoice($payload, $user);
 
-            // Actualizar datos de comprobante en la orden para consulta en Vue
+            // Actualizar datos de comprobante en la orden
             $invoiceNumber = "{$invoice->series}-" . str_pad($invoice->number, 8, '0', STR_PAD_LEFT);
             $pdfUrl = $invoice->pdf_url ?? $invoice->pdf_path ?? null;
             $xmlUrl = $invoice->xml_url ?? $invoice->xml_path ?? null;
@@ -189,7 +189,7 @@ class InvoiceService
                 ]);
             }
 
-            // 4. Descontar Inventario con registerSaleExit (posee control de idempotencia)
+            // 4. Descontar Inventario con registerSaleExit
             if (!empty($data['order_id'])) {
                 $order = Order::with('details')->find($data['order_id']);
                 if ($order) {
