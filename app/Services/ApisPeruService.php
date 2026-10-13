@@ -13,7 +13,7 @@ class ApisPeruService
 
     public function __construct()
     {
-        $this->token   = config('services.apisperu.token');
+        $this->token   = config('services.apisperu.token', '');
         $this->baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
     }
 
@@ -68,15 +68,23 @@ class ApisPeruService
                 ->post("{$this->baseUrl}/invoice/send", $payload);
 
             if ($response->failed()) {
+                $resJson = $response->json();
+
                 Log::error('Error APIsPeru HTTP Status ' . $response->status(), [
-                    'response' => $response->json(),
+                    'response' => $resJson,
                     'invoice'  => $invoice->id
                 ]);
 
+                // Captura 'error', 'message' o 'description' según lo devuelva la API
+                $errorMessage = $resJson['error'] 
+                    ?? $resJson['message'] 
+                    ?? $resJson['description'] 
+                    ?? "Error HTTP {$response->status()} devuelto por APIsPeru";
+
                 return [
                     'success' => false,
-                    'message' => $response->json('message') ?? $response->json('description') ?? 'Error en la comunicación con APIsPeru',
-                    'errors'  => $response->json('errors') ?? null
+                    'message' => $errorMessage,
+                    'errors'  => $resJson['errors'] ?? null
                 ];
             }
 
@@ -101,14 +109,14 @@ class ApisPeruService
     private function mapDetails(Invoice $invoice): array
     {
         return $invoice->details->map(function ($detail) {
-            $unitPrice    = (float) $detail->unit_price;
-            $quantity     = (float) $detail->quantity;
-            $totalItem    = $unitPrice * $quantity;
-            $valorVenta   = round($totalItem / 1.18, 2);
+            $unitPrice  = (float) $detail->unit_price;
+            $quantity   = (float) $detail->quantity;
+            $totalItem  = $unitPrice * $quantity;
+            $valorVenta = round($totalItem / 1.18, 2);
 
             return [
                 'codProducto'         => (string) $detail->product_id,
-                'unidad'              => $detail->unit_code ?? 'NIU', // NIU = Unidades, ZZ = Servicios
+                'unidad'              => $detail->unit_code ?? 'NIU', // NIU = Unidades
                 'descripcion'         => $detail->product_name,
                 'cantidad'            => $quantity,
                 'montoValorUnitario'  => round($unitPrice / 1.18, 4),

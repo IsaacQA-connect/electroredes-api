@@ -293,43 +293,50 @@ class InventoryService
         });
     }
 
-    public function registerSaleExit(
-        Order $order,
-        User $user
-    ): InventoryMovement {
-        
+    // app/Services/InventoryService.php
+    public function registerSaleExit(Order $order, User $user): InventoryMovement
+    {
         return DB::transaction(function () use ($order, $user) {
 
+            // 🛡️ CONTROL DE DUPLICIDAD: Si ya se registró salida para esta Orden, retorna el movimiento existente
+            $existingMovement = InventoryMovement::where('type', InventoryMovementType::SALE_EXIT)
+                ->where('reference_type', 'order')
+                ->where('reference_id', $order->id)
+                ->first();
+
+            if ($existingMovement) {
+                return $existingMovement;
+            }
+
+            // Crear registro de movimiento
             $movement = InventoryMovement::create([
-                'user_id' => $user->id,
-                'type' => InventoryMovementType::SALE_EXIT,
+                'user_id'        => $user->id,
+                'type'           => InventoryMovementType::SALE_EXIT,
                 'reference_type' => 'order',
-                'reference_id' => $order->id,
-                'movement_date' => now(),
-                'notes' => "Salida de inventario por venta / Orden #{$order->id}",
+                'reference_id'   => $order->id,
+                'movement_date'  => now(),
+                'notes'          => "Salida de inventario por venta / Orden #{$order->id}",
             ]);
 
             foreach ($order->details as $detail) {
-
                 $product = Product::query()
                     ->lockForUpdate()
                     ->findOrFail($detail->product_id);
 
                 if ($product->stock < $detail->quantity) {
                     throw ValidationException::withMessages([
-                        'stock' => [
-                            "Stock insuficiente para el producto: {$product->name}"
-                        ],
+                        'stock' => ["Stock insuficiente para el producto: {$product->name}"]
                     ]);
                 }
 
+                // Descontar stock solo si no se había procesado antes
                 $product->stock -= $detail->quantity;
                 $product->save();
 
                 $movement->details()->create([
                     'product_id' => $product->id,
-                    'quantity' => $detail->quantity,
-                    'unit_cost' => $product->cost,
+                    'quantity'   => $detail->quantity,
+                    'unit_cost'  => $product->cost,
                 ]);
             }
 
