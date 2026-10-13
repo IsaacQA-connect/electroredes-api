@@ -59,7 +59,7 @@ class InvoiceService
     }
 
     /**
-     * DISPARADOR DE FACTURACIÓN: Crea e invoice a partir de un Order pagado.
+     * DISPARADOR DE FACTURACIÓN: Crea un invoice a partir de un Order pagado.
      */
     public function createInvoiceFromOrder(Order $order): Invoice
     {
@@ -109,6 +109,7 @@ class InvoiceService
             'payment_method'    => $order->payments->first()->method ?? 'ONLINE_PAYMENT',
             'items'             => $items,
             'order_id'          => $order->id,
+            'customer_id'       => $order->customer_id ?? null,
         ];
 
         // Obtener o asignar usuario del sistema
@@ -143,7 +144,7 @@ class InvoiceService
             $invoice = Invoice::create([
                 'user_id'           => $user->id,
                 'order_id'          => $data['order_id'] ?? null,
-                'customer_id'       => $order->customer_id ?? null,
+                'customer_id'       => $data['customer_id'] ?? null,
                 'document_type'     => $documentType,
                 'series'            => $data['series'],
                 'number'            => $number,
@@ -159,7 +160,7 @@ class InvoiceService
                 'sunat_status'      => $documentType === 'NV' ? 'INTERNAL' : 'PENDING',
             ]);
 
-            // 3. Detalles e Inventario
+            // 3. Detalles de Comprobante
             foreach ($data['items'] as $item) {
                 $subtotal = $item['quantity'] * $item['unit_price'];
                 $itemIgv  = $subtotal - ($subtotal / 1.18);
@@ -173,19 +174,17 @@ class InvoiceService
                     'igv'          => round($itemIgv, 2),
                     'total'        => round($subtotal, 2),
                 ]);
+            }
 
-                if (!empty($item['product_id'])) {
-                    $this->inventoryService->registerOutflow(
-                        productId: $item['product_id'],
-                        quantity: $item['quantity'],
-                        referenceType: 'INVOICE',
-                        referenceId: $invoice->id,
-                        description: "Venta con {$invoice->series}-{$number}"
-                    );
+            // 4. Descontar Inventario con registerSaleExit si proviene de una Orden
+            if (!empty($data['order_id'])) {
+                $order = Order::with('details')->find($data['order_id']);
+                if ($order) {
+                    $this->inventoryService->registerSaleExit($order, $user);
                 }
             }
 
-            // 4. Caja Chica (Solo pagos en efectivo)
+            // 5. Caja Chica (Solo pagos en efectivo)
             $activeRegister = CashRegister::where('status', 'OPEN')->latest()->first();
             if ($activeRegister && $paymentMethod === 'CASH') {
                 CashRegisterMovement::create([
@@ -199,7 +198,7 @@ class InvoiceService
                 ]);
             }
 
-            // 5. SUNAT vía APIsPeru
+            // 6. SUNAT vía APIsPeru
             if (in_array($documentType, ['01', '03'])) {
                 $this->processSunatEmission($invoice);
             }
