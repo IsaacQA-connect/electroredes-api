@@ -30,9 +30,13 @@ class Invoice extends Model
         'total',
         'payment_method',
         'sunat_status',
-        'sunat_response_code',
         'sunat_description',
+        'sunat_response_code',
+        'pdf_url',
+        'pdf_path',
+        'xml_url',
         'xml_path',
+        'cdr_url',
         'cdr_path',
     ];
 
@@ -56,15 +60,23 @@ class Invoice extends Model
     }
 
     /**
-     * Cliente asociado (si está registrado en la BD).
+     * Cliente asociado (mapeado a customer_id).
      */
-    public function client(): BelongsTo
+    public function customer(): BelongsTo
     {
-        return $this->belongsTo(Client::class);
+        return $this->belongsTo(Customer::class);
     }
 
     /**
-     * Detalle de ítemes del comprobante.
+     * Orden de venta origen de este comprobante.
+     */
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
+
+    /**
+     * Detalle de ítems del comprobante.
      */
     public function details(): HasMany
     {
@@ -72,7 +84,7 @@ class Invoice extends Model
     }
 
     /**
-     * Scope para filtrar por tipo de documento.
+     * Scope para filtrar por tipo de documento ('01', '03', 'NV').
      */
     public function scopeOfType($query, string $type)
     {
@@ -87,10 +99,19 @@ class Invoice extends Model
         return $this->series . '-' . str_pad((string) $this->number, 8, '0', STR_PAD_LEFT);
     }
 
-    // app/Models/Invoice.php
-
-    public function order(): BelongsTo
+    /**
+     * Accessor para URL de PDF garantizando fallback al proxy
+     */
+    public function getPdfUrlAttribute($value): string
     {
-        return $this->belongsTo(Order::class);
+        return $value ?? $this->pdf_path ?? url("/api/invoices/{$this->id}/pdf");
+    }
+
+    /**
+     * Accessor para URL de XML garantizando fallback al proxy
+     */
+    public function getXmlUrlAttribute($value): string
+    {
+        return $value ?? $this->xml_path ?? url("/api/invoices/{$this->id}/xml");
     }
 }
