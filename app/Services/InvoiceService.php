@@ -225,7 +225,7 @@ class InvoiceService
         $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
         $ruc = config('services.apisperu.ruc', config('app.company_ruc'));
 
-        // URLs públicas de PDF y XML en APIsPeru
+        // URLs públicas de PDF y XML predefinidas en APIsPeru
         $pdfUrl = "{$baseUrl}/invoice/pdf?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
         $xmlUrl = "{$baseUrl}/invoice/xml?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
 
@@ -243,14 +243,29 @@ class InvoiceService
             return;
         }
 
-        $resData = $apisResult['data'];
-        $isAccepted = $resData['sunatResponse']['success'] ?? false;
-        $responseCode = $resData['sunatResponse']['cdrResponse']['code'] ?? ($resData['code'] ?? '0');
-        $cdrZip = $resData['sunatResponse']['cdrZip'] ?? ($resData['cdrZip'] ?? null);
+        $resData = $apisResult['data'] ?? [];
+
+        // Capturar código de respuesta CDR (0 = Exitoso/Aceptado por SUNAT)
+        $responseCode = (string) (
+            $resData['sunatResponse']['cdrResponse']['code'] 
+            ?? $resData['code'] 
+            ?? '0'
+        );
+
+        // Es ACEPTADO si la flag success es verdadera O si el código CDR es '0'
+        $isAccepted = ($resData['sunatResponse']['success'] ?? false) || $responseCode === '0';
+
+        $cdrZip = $resData['sunatResponse']['cdrZip'] 
+            ?? $resData['cdrZip'] 
+            ?? null;
+
+        $description = $resData['sunatResponse']['cdrResponse']['description'] 
+            ?? $resData['sunatResponse']['description'] 
+            ?? 'Procesado por SUNAT';
 
         $invoice->update([
             'sunat_status'        => $isAccepted ? 'ACCEPTED' : 'REJECTED',
-            'sunat_description'   => $resData['sunatResponse']['cdrResponse']['description'] ?? 'Procesado por SUNAT',
+            'sunat_description'   => $description,
             'sunat_response_code' => $responseCode,
             'xml_url'             => $xmlUrl,
             'xml_path'            => $xmlUrl,
