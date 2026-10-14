@@ -224,7 +224,6 @@ class InvoiceService
 
     private function processSunatEmission(Invoice $invoice): void
     {
-        // Ruta proxy interna para evitar error de Token en el navegador
         $pdfUrl = url("/api/invoices/{$invoice->id}/pdf");
         $xmlUrl = url("/api/invoices/{$invoice->id}/xml");
 
@@ -244,15 +243,15 @@ class InvoiceService
 
         $resData = $apisResult['data'] ?? [];
 
-        // Capturar código de respuesta CDR (0 = Exitoso/Aceptado por SUNAT)
-        $responseCode = (string) (
-            $resData['sunatResponse']['cdrResponse']['code'] 
-            ?? $resData['code'] 
-            ?? '0'
-        );
+        // Capturar el código CDR real (SIN fallback forzado a '0')
+        $responseCode = isset($resData['sunatResponse']['cdrResponse']['code'])
+            ? (string) $resData['sunatResponse']['cdrResponse']['code']
+            : (isset($resData['code']) ? (string) $resData['code'] : null);
 
-        // Es ACEPTADO si la flag success es verdadera O si el código CDR es '0'
-        $isAccepted = ($resData['sunatResponse']['success'] ?? false) || $responseCode === '0';
+        $sunatSuccess = $resData['sunatResponse']['success'] ?? false;
+
+        // Solo se acepta si SUNAT respondió explícitamente con éxito
+        $isAccepted = $sunatSuccess || $responseCode === '0';
 
         $cdrZip = $resData['sunatResponse']['cdrZip'] 
             ?? $resData['cdrZip'] 
@@ -260,12 +259,13 @@ class InvoiceService
 
         $description = $resData['sunatResponse']['cdrResponse']['description'] 
             ?? $resData['sunatResponse']['description'] 
-            ?? 'Procesado por SUNAT';
+            ?? $apisResult['message'] 
+            ?? ($isAccepted ? 'Procesado por SUNAT' : 'No se recibió CDR de SUNAT');
 
         $invoice->update([
             'sunat_status'        => $isAccepted ? 'ACCEPTED' : 'REJECTED',
             'sunat_description'   => $description,
-            'sunat_response_code' => $responseCode,
+            'sunat_response_code' => $responseCode ?? 'ERROR',
             'xml_url'             => $xmlUrl,
             'xml_path'            => $xmlUrl,
             'pdf_url'             => $pdfUrl,

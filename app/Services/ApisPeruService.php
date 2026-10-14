@@ -22,6 +22,15 @@ class ApisPeruService
      */
     public function sendInvoice(Invoice $invoice): array
     {
+        // Cargar relación 'details' si no está presente en el modelo
+        $invoice->loadMissing('details');
+
+        // Formatear numDoc para clientes varios / sin documento
+        $clientDocType = $invoice->client_doc_type ?? '0';
+        $clientDocNumber = ($clientDocType === '0' || empty($invoice->client_doc_number) || $invoice->client_doc_number === '0')
+            ? '00000000'
+            : $invoice->client_doc_number;
+
         $payload = [
             'ublVersion'        => '2.1',
             'tipoDoc'           => $invoice->document_type, // '01' Factura, '03' Boleta
@@ -34,15 +43,15 @@ class ApisPeruService
             ],
             'tipoMoneda'        => $invoice->currency ?? 'PEN',
             'client'            => [
-                'tipoDoc'   => $invoice->client_doc_type, // '6' RUC, '1' DNI, '0' Sin Doc
-                'numDoc'    => $invoice->client_doc_number ?? '00000000',
-                'rznSocial' => $invoice->client_name,
+                'tipoDoc'   => $clientDocType,
+                'numDoc'    => $clientDocNumber,
+                'rznSocial' => $invoice->client_name ?? 'CLIENTE VARIOS',
                 'address'   => [
                     'direccion' => $invoice->client_address ?? 'CIUDAD',
                 ],
             ],
             'company'           => [
-                'ruc'             => config('services.apisperu.ruc', config('app.company_ruc', '20000000000')),
+                'ruc'             => config('services.apisperu.ruc', config('app.company_ruc', '10723512552')),
                 'razonSocial'     => config('services.apisperu.razon_social', config('app.company_name', 'ELECTRO REDES S.A.C.')),
                 'nombreComercial' => config('services.apisperu.nombre_comercial', config('app.company_commercial_name', 'ELECTRO REDES')),
                 'address'         => [
@@ -67,15 +76,14 @@ class ApisPeruService
                 ->acceptJson()
                 ->post("{$this->baseUrl}/invoice/send", $payload);
 
+            $resJson = $response->json() ?? [];
+
+            Log::info("Respuesta HTTP {$response->status()} de APIsPeru para Invoice #{$invoice->id}", [
+                'payload'  => $payload,
+                'response' => $resJson,
+            ]);
+
             if ($response->failed()) {
-                $resJson = $response->json();
-
-                Log::error('Error APIsPeru HTTP Status ' . $response->status(), [
-                    'response' => $resJson,
-                    'invoice'  => $invoice->id
-                ]);
-
-                // Captura 'error', 'message' o 'description' según lo devuelva la API
                 $errorMessage = $resJson['error'] 
                     ?? $resJson['message'] 
                     ?? $resJson['description'] 
@@ -88,13 +96,17 @@ class ApisPeruService
                 ];
             }
 
+            // Verificar si SUNAT aceptó el comprobante
+            $sunatSuccess = $resJson['sunatResponse']['success'] ?? $resJson['success'] ?? false;
+
             return [
-                'success' => true,
-                'data'    => $response->json(),
+                'success' => $sunatSuccess,
+                'data'    => $resJson,
+                'message' => $resJson['sunatResponse']['cdrResponse']['description'] ?? $resJson['message'] ?? 'Procesado',
             ];
 
         } catch (\Exception $e) {
-            Log::error('Excepción al conectar con APIsPeru: ' . $e->getMessage());
+            Log::error("Excepción al conectar con APIsPeru para Invoice #{$invoice->id}: " . $e->getMessage());
 
             return [
                 'success' => false,
@@ -116,8 +128,8 @@ class ApisPeruService
 
             return [
                 'codProducto'         => (string) $detail->product_id,
-                'unidad'              => $detail->unit_code ?? 'NIU', // NIU = Unidades
-                'descripcion'         => $detail->product_name,
+                'unidad'              => $detail->unit_code ?? 'NIU',
+                'descripcion'         => $detail->product_name ?? 'Producto',
                 'cantidad'            => $quantity,
                 'montoValorUnitario'  => round($unitPrice / 1.18, 4),
                 'montoPrecioUnitario' => $unitPrice,
