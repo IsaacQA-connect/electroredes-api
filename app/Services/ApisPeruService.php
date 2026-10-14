@@ -124,20 +124,23 @@ class ApisPeruService
             $unitPrice  = (float) $detail->unit_price;
             $quantity   = (float) $detail->quantity;
             $totalItem  = $unitPrice * $quantity;
+            
+            // Calcular la base imponible redondeada a 2 decimales
             $valorVenta = round($totalItem / 1.18, 2);
+            $valorUnitario = round($valorVenta / $quantity, 2);
 
             return [
                 'codProducto'         => (string) $detail->product_id,
                 'unidad'              => $detail->unit_code ?? 'NIU',
                 'descripcion'         => $detail->product_name ?? 'Producto',
                 'cantidad'            => $quantity,
-                'montoValorUnitario'  => round($unitPrice / 1.18, 4),
-                'montoPrecioUnitario' => $unitPrice,
-                'montoValorVenta'     => $valorVenta,
-                'montoBaseIgv'        => $valorVenta,
+                'montoValorUnitario'  => $valorUnitario,  // 6.78
+                'montoPrecioUnitario' => $unitPrice,      // 8.00
+                'montoValorVenta'     => $valorVenta,      // 6.78
+                'montoBaseIgv'        => $valorVenta,      // 6.78
                 'porcentajeIgv'       => 18,
                 'igv'                 => (float) $detail->igv,
-                'tipAfeIgv'           => '10', // 10 = Gravado - Operación Onerosa
+                'tipAfeIgv'           => '10',
                 'totalImpuestos'      => (float) $detail->igv,
             ];
         })->toArray();
