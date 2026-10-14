@@ -6,24 +6,22 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
-use App\Services\ApisPeruService;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 
 class OrderController extends Controller
 {
     public function __construct(
-        protected OrderService $orderService,
-        protected ApisPeruService $apisPeruService
-    ) {
-    }
+        protected OrderService $orderService
+    ) {}
 
     public function index(Request $request)
     {
         $user = $request->user();
 
-        // 1. Iniciar consulta cargando relaciones necesarias (evita problema N+1)
+        // 1. Iniciar consulta cargando relaciones necesarias
         $query = Order::with(['customer', 'details.product', 'payments', 'invoice']);
 
         // 2. Si no es administrador, filtrar únicamente sus órdenes
@@ -38,7 +36,6 @@ class OrderController extends Controller
             });
         }
 
-        // 3. Ordenar descendentemente
         $orders = $query->latest()->get();
 
         return response()->json([
@@ -47,10 +44,8 @@ class OrderController extends Controller
         ], 200);
     }
 
-    public function store(
-        StoreOrderRequest $request
-    ): JsonResponse {
-        
+    public function store(StoreOrderRequest $request): JsonResponse
+    {
         $order = $this->orderService->create(
             $request->validated(),
             $request->user()
@@ -67,7 +62,6 @@ class OrderController extends Controller
         $user = $request->user();
         $roleName = is_object($user->role) ? $user->role->name : $user->role;
 
-        // Validar permisos de acceso
         if (strtoupper($roleName ?? '') !== 'ADMIN') {
             $isOwner = $order->user_id === $user->id || 
                        ($user->customer && $order->customer_id === $user->customer->id);
@@ -122,13 +116,14 @@ class OrderController extends Controller
     }
 
     /**
-     * Lógica compartida para la redirección y descarga de comprobantes
+     * Descarga de comprobantes (proxy seguro con Bearer Token)
      */
     protected function downloadDocument(Request $request, Order $order, string $format)
     {
         $user = $request->user();
         $roleName = is_object($user->role) ? $user->role->name : $user->role;
 
+        // Validar permisos de acceso
         if (strtoupper($roleName ?? '') !== 'ADMIN') {
             $isOwner = $order->user_id === $user->id || 
                        ($user->customer && $order->customer_id === $user->customer->id);
@@ -138,31 +133,47 @@ class OrderController extends Controller
             }
         }
 
-        $urlField = $format === 'xml' ? 'xml_url' : 'pdf_url';
-        
-        // 1. Obtener URL guardada en la orden o en el modelo Invoice
-        $fileUrl = $order->{$urlField} ?? $order->invoice?->{$urlField};
+        $order->loadMissing('invoice');
 
-        // 2. Si no existe la URL directa pero se tiene la serie y correlativo, construir la URL de APIsPeru
-        if (!$fileUrl) {
-            $invoiceNumber = $order->invoice_number ?? null;
-            $serie   = $order->invoice?->series ?? ($invoiceNumber ? explode('-', $invoiceNumber)[0] : null);
-            $number  = $order->invoice?->number ?? ($invoiceNumber ? explode('-', $invoiceNumber)[1] : null);
-            $tipoDoc = $order->invoice?->document_type ?? ($order->invoice_type === 'FACTURA' ? '01' : '03');
+        // 1. Obtener serie, correlativo y tipo de documento
+        $invoice = $order->invoice;
+        $invoiceNumber = $order->invoice_number;
 
-            if ($serie && $number) {
-                $ruc = config('services.apisperu.ruc', config('app.company_ruc', '20000000000'));
-                $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
-                $fileUrl = "{$baseUrl}/invoice/{$format}?ruc={$ruc}&tipoDoc={$tipoDoc}&serie={$serie}&correlativo={$number}";
-            }
-        }
+        $serie   = $invoice?->series ?? ($invoiceNumber ? explode('-', $invoiceNumber)[0] : null);
+        $number  = $invoice?->number ?? ($invoiceNumber ? explode('-', $invoiceNumber)[1] : null);
+        $tipoDoc = $invoice?->document_type ?? ($order->invoice_type === 'FACTURA' ? '01' : '03');
 
-        if (!$fileUrl) {
+        if (!$serie || !$number) {
             return response()->json([
-                'message' => 'El comprobante ' . strtoupper($format) . ' aún no está disponible.'
+                'message' => 'La orden no tiene un comprobante emitido asignado.'
             ], 404);
         }
 
-        return redirect()->away($fileUrl);
+        // 2. Parámetros de APIsPeru
+        $token   = config('services.apisperu.token');
+        $ruc     = config('services.apisperu.ruc', config('app.company_ruc', '10723512552'));
+        $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
+
+        $apiUrl = "{$baseUrl}/invoice/{$format}?ruc={$ruc}&tipoDoc={$tipoDoc}&serie={$serie}&correlativo={$number}";
+
+        // 3. Petición autenticada a APIsPeru en segundo plano
+        $response = Http::withToken($token)->get($apiUrl);
+
+        if ($response->failed()) {
+            return response()->json([
+                'message' => 'No se pudo obtener el archivo ' . strtoupper($format) . ' de APIsPeru.',
+                'error'   => $response->json('error') ?? $response->body()
+            ], $response->status());
+        }
+
+        // 4. Entregar el archivo binario al navegador
+        $filename = "{$serie}-{$number}.{$format}";
+        $contentType = $format === 'xml' ? 'application/xml' : 'application/pdf';
+        $disposition = $format === 'xml' ? 'attachment' : 'inline';
+
+        return response($response->body(), 200, [
+            'Content-Type'        => $contentType,
+            'Content-Disposition' => "{$disposition}; filename=\"{$filename}\"",
+        ]);
     }
 }
