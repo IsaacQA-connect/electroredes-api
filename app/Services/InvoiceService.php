@@ -80,7 +80,7 @@ class InvoiceService
 
             // Determinar tipo de documento cliente (6: RUC, 1: DNI, 0: Sin doc)
             $clientDocType = '1';
-            if ($isFactura || strlen($lockedOrder->document_number) === 11) {
+            if ($isFactura || strlen($lockedOrder->document_number ?? '') === 11) {
                 $clientDocType = '6';
             } elseif (!$lockedOrder->document_number) {
                 $clientDocType = '0';
@@ -122,11 +122,13 @@ class InvoiceService
             ];
 
             // Obtener o asignar usuario del sistema
-            $user = $lockedOrder->user ?? User::whereHas('role', fn($q) => $q->where('name', 'ADMIN'))->first() ?? auth()->user();
+            $user = $lockedOrder->user 
+                ?? auth()->user() 
+                ?? User::first();
 
             $invoice = $this->createInvoice($payload, $user);
 
-            // Actualizar datos de comprobante en la orden
+            // Actualizar datos de comprobante en la orden con URLs proxy
             $invoiceNumber = "{$invoice->series}-" . str_pad($invoice->number, 8, '0', STR_PAD_LEFT);
             $pdfUrl = $invoice->pdf_url ?? $invoice->pdf_path ?? null;
             $xmlUrl = $invoice->xml_url ?? $invoice->xml_path ?? null;
@@ -222,12 +224,9 @@ class InvoiceService
 
     private function processSunatEmission(Invoice $invoice): void
     {
-        $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
-        $ruc = config('services.apisperu.ruc', config('app.company_ruc'));
-
-        // URLs públicas de PDF y XML predefinidas en APIsPeru
-        $pdfUrl = "{$baseUrl}/invoice/pdf?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
-        $xmlUrl = "{$baseUrl}/invoice/xml?ruc={$ruc}&tipoDoc={$invoice->document_type}&serie={$invoice->series}&correlativo={$invoice->number}";
+        // Ruta proxy interna para evitar error de Token en el navegador
+        $pdfUrl = url("/api/invoices/{$invoice->id}/pdf");
+        $xmlUrl = url("/api/invoices/{$invoice->id}/xml");
 
         $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details'));
 
