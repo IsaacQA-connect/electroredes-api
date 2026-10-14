@@ -19,6 +19,7 @@ use App\Models\User;
 use Illuminate\Auth\Events\Verified;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Auth\SocialAuthController;
+use App\Http\Controllers\InvoiceController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -172,7 +173,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::get('/invoices/{invoice}/ticket', [InvoiceController::class, 'streamTicket']);
-        Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'streamPdf']);
+        Route::get('/invoices/{invoice}/pdf', [InvoiceDownloadController::class, 'downloadPdf']);
+        Route::get('/invoices/{invoice}/xml', [InvoiceDownloadController::class, 'downloadXml']);
         Route::post('/invoices/{invoice}/resend-sunat', [InvoiceController::class, 'resendSunat']);
 
     });
