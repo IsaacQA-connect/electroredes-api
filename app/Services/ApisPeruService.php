@@ -33,6 +33,7 @@ class ApisPeruService
 
         $payload = [
             'ublVersion'     => '2.1',
+            'tipoOperacion'  => '0101', // 👈 AGREGAR ESTA LÍNEA (0101 = Venta Interna)
             'tipoDoc'        => $invoice->document_type,
             'serie'          => $invoice->series,
             'correlativo'    => (string) $invoice->number,
