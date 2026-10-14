@@ -121,27 +121,28 @@ class ApisPeruService
     private function mapDetails(Invoice $invoice): array
     {
         return $invoice->details->map(function ($detail) {
-            $unitPrice  = (float) $detail->unit_price;
+            $unitPrice  = round((float) $detail->unit_price, 2);
             $quantity   = (float) $detail->quantity;
-            $totalItem  = $unitPrice * $quantity;
+            $totalItem  = round($unitPrice * $quantity, 2);
             
-            // Calcular la base imponible redondeada a 2 decimales
-            $valorVenta = round($totalItem / 1.18, 2);
-            $valorUnitario = round($valorVenta / $quantity, 2);
+            // Base Imponible e IGV del ítem
+            $valorVenta     = round($totalItem / 1.18, 2);
+            $valorUnitario  = round($valorVenta / $quantity, 2);
+            $igvItem        = round($totalItem - $valorVenta, 2);
 
             return [
                 'codProducto'         => (string) $detail->product_id,
                 'unidad'              => $detail->unit_code ?? 'NIU',
                 'descripcion'         => $detail->product_name ?? 'Producto',
                 'cantidad'            => $quantity,
-                'montoValorUnitario'  => $valorUnitario,  // 6.78
-                'montoPrecioUnitario' => $unitPrice,      // 8.00
-                'montoValorVenta'     => $valorVenta,      // 6.78
-                'montoBaseIgv'        => $valorVenta,      // 6.78
+                'montoValorUnitario'  => $valorUnitario,  // 5.51
+                'montoPrecioUnitario' => $unitPrice,      // 6.50
+                'montoValorVenta'     => $valorVenta,      // 5.51
+                'montoBaseIgv'        => $valorVenta,      // 5.51
                 'porcentajeIgv'       => 18,
-                'igv'                 => (float) $detail->igv,
-                'tipAfeIgv'           => '10',
-                'totalImpuestos'      => (float) $detail->igv,
+                'igv'                 => $igvItem,         // 0.99
+                'tipAfeIgv'           => '10',            // 10 = Gravado Operación Onerosa
+                'totalImpuestos'      => $igvItem,         // 0.99
             ];
         })->toArray();
     }
