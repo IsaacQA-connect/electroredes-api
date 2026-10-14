@@ -22,27 +22,27 @@ class ApisPeruService
      */
     public function sendInvoice(Invoice $invoice): array
     {
-        // Cargar relación 'details' si no está presente en el modelo
+        // Asegurar que la relación 'details' esté cargada
         $invoice->loadMissing('details');
 
-        // Formatear numDoc para clientes varios / sin documento
-        $clientDocType = $invoice->client_doc_type ?? '0';
+        // Formatear numDoc para clientes varios o sin documento
+        $clientDocType   = $invoice->client_doc_type ?? '0';
         $clientDocNumber = ($clientDocType === '0' || empty($invoice->client_doc_number) || $invoice->client_doc_number === '0')
             ? '00000000'
             : $invoice->client_doc_number;
 
         $payload = [
-            'ublVersion'        => '2.1',
-            'tipoDoc'           => $invoice->document_type, // '01' Factura, '03' Boleta
-            'serie'             => $invoice->series,        // Ej: 'F001' o 'B001'
-            'correlativo'       => (string) $invoice->number,
-            'fechaEmision'      => $invoice->created_at ? $invoice->created_at->format('Y-m-d\TH:i:sP') : now()->setTimezone('America/Lima')->format('Y-m-d\TH:i:sP'),
-            'formaPago'         => [
+            'ublVersion'     => '2.1',
+            'tipoDoc'        => $invoice->document_type,
+            'serie'          => $invoice->series,
+            'correlativo'    => (string) $invoice->number,
+            'fechaEmision'   => $invoice->created_at ? $invoice->created_at->format('Y-m-d\TH:i:sP') : now()->setTimezone('America/Lima')->format('Y-m-d\TH:i:sP'),
+            'formaPago'      => [
                 'moneda' => $invoice->currency ?? 'PEN',
                 'tipo'   => 'Contado',
             ],
-            'tipoMoneda'        => $invoice->currency ?? 'PEN',
-            'client'            => [
+            'tipoMoneda'     => $invoice->currency ?? 'PEN',
+            'client'         => [
                 'tipoDoc'   => $clientDocType,
                 'numDoc'    => $clientDocNumber,
                 'rznSocial' => $invoice->client_name ?? 'CLIENTE VARIOS',
@@ -50,25 +50,25 @@ class ApisPeruService
                     'direccion' => $invoice->client_address ?? 'CIUDAD',
                 ],
             ],
-            'company'           => [
+            'company'        => [
                 'ruc'             => config('services.apisperu.ruc', config('app.company_ruc', '10723512552')),
-                'razonSocial'     => config('services.apisperu.razon_social', config('app.company_name', 'ELECTRO REDES S.A.C.')),
-                'nombreComercial' => config('services.apisperu.nombre_comercial', config('app.company_commercial_name', 'ELECTRO REDES')),
+                'razonSocial'     => config('services.apisperu.razon_social', config('app.company_name', 'HERRERA PAREDEZ EVENZ NOE')),
+                'nombreComercial' => config('services.apisperu.nombre_comercial', config('app.company_commercial_name', 'ELECTROREDES')),
                 'address'         => [
-                    'direccion'    => config('services.apisperu.direccion', 'AV. PRINCIPAL 123'),
+                    'direccion'    => config('services.apisperu.direccion', 'Asoc. 8 de diciembre Mz-H1 Lt-8 - Moquegua'),
                     'departamento' => config('services.apisperu.departamento', 'MOQUEGUA'),
                     'provincia'    => config('services.apisperu.provincia', 'MARISCAL NIETO'),
-                    'distrito'     => config('services.apisperu.distrito', 'MOQUEGUA'),
-                    'ubigeo'       => config('services.apisperu.ubigeo', '180101'),
+                    'distrito'     => config('services.apisperu.distrito', 'SAN ANTONIO'),
+                    'ubigeo'       => config('services.apisperu.ubigeo', '180107'),
                 ],
             ],
-            'montoOperGravadas' => (float) $invoice->op_taxed,
-            'montoIGV'          => (float) $invoice->igv,
-            'totalImpuestos'    => (float) $invoice->igv,
-            'valorVenta'        => (float) $invoice->op_taxed,
-            'subTotal'          => (float) $invoice->total,
-            'montoImpVenta'     => (float) $invoice->total,
-            'details'           => $this->mapDetails($invoice),
+            'mtoOperGravadas' => (float) $invoice->op_taxed,
+            'mtoIGV'          => (float) $invoice->igv,
+            'totalImpuestos'  => (float) $invoice->igv,
+            'valorVenta'      => (float) $invoice->op_taxed,
+            'subTotal'        => (float) $invoice->total,
+            'mtoImpVenta'     => (float) $invoice->total,
+            'details'         => $this->mapDetails($invoice),
         ];
 
         try {
@@ -96,7 +96,6 @@ class ApisPeruService
                 ];
             }
 
-            // Verificar si SUNAT aceptó el comprobante
             $sunatSuccess = $resJson['sunatResponse']['success'] ?? $resJson['success'] ?? false;
 
             return [
@@ -125,24 +124,23 @@ class ApisPeruService
             $quantity   = (float) $detail->quantity;
             $totalItem  = round($unitPrice * $quantity, 2);
             
-            // Base Imponible e IGV del ítem
-            $valorVenta     = round($totalItem / 1.18, 2);
-            $valorUnitario  = round($valorVenta / $quantity, 2);
-            $igvItem        = round($totalItem - $valorVenta, 2);
+            $valorVenta    = round($totalItem / 1.18, 2);
+            $valorUnitario = round($valorVenta / $quantity, 2);
+            $igvItem       = round($totalItem - $valorVenta, 2);
 
             return [
-                'codProducto'         => (string) $detail->product_id,
-                'unidad'              => $detail->unit_code ?? 'NIU',
-                'descripcion'         => $detail->product_name ?? 'Producto',
-                'cantidad'            => $quantity,
-                'montoValorUnitario'  => $valorUnitario,  // 5.51
-                'montoPrecioUnitario' => $unitPrice,      // 6.50
-                'montoValorVenta'     => $valorVenta,      // 5.51
-                'montoBaseIgv'        => $valorVenta,      // 5.51
-                'porcentajeIgv'       => 18,
-                'igv'                 => $igvItem,         // 0.99
-                'tipAfeIgv'           => '10',            // 10 = Gravado Operación Onerosa
-                'totalImpuestos'      => $igvItem,         // 0.99
+                'codProducto'       => (string) $detail->product_id,
+                'unidad'            => $detail->unit_code ?? 'NIU',
+                'descripcion'       => $detail->product_name ?? 'Producto',
+                'cantidad'          => $quantity,
+                'mtoValorUnitario'  => $valorUnitario,  // Usando la clave oficial mto...
+                'mtoPrecioUnitario' => $unitPrice,      // Usando la clave oficial mto...
+                'mtoValorVenta'     => $valorVenta,     // Usando la clave oficial mto...
+                'mtoBaseIgv'        => $valorVenta,     // Usando la clave oficial mto...
+                'porcentajeIgv'     => 18,
+                'igv'               => $igvItem,
+                'tipAfeIgv'         => '10',
+                'totalImpuestos'    => $igvItem,
             ];
         })->toArray();
     }
