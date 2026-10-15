@@ -6,17 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreInvoiceRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Models\Invoice;
+use App\Services\ApisPeruService;
 use App\Services\InvoiceService;
+use App\Services\PrintService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Storage;
-use App\Services\PrintService;
 
 class InvoiceController extends Controller
 {
     public function __construct(
         protected InvoiceService $invoiceService,
-        protected PrintService $printService
+        protected PrintService $printService,
+        protected ApisPeruService $apisPeruService
     ) {}
 
     /**
@@ -58,31 +60,69 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Descarga del archivo XML firmado.
+     * Descarga del archivo PDF del Comprobante (Generado vía APIsPeru).
+     */
+    public function downloadPdf(Invoice $invoice)
+    {
+        $response = $this->apisPeruService->getInvoicePdf($invoice->loadMissing('details'));
+
+        if ($response->failed()) {
+            return response()->json([
+                'message' => 'No se pudo generar el PDF en APIsPeru.',
+                'error'   => $response->json() ?? $response->body()
+            ], $response->status());
+        }
+
+        return response($response->body(), 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "inline; filename=\"{$invoice->series}-{$invoice->number}.pdf\"",
+        ]);
+    }
+
+    /**
+     * Descarga del archivo XML firmado (Generado vía APIsPeru).
      */
     public function downloadXml(Invoice $invoice)
     {
-        if (!$invoice->xml_path || !Storage::exists($invoice->xml_path)) {
-            return response()->json(['message' => 'Archivo XML no encontrado'], 404);
+        // 1. Si existe un archivo XML físico en el servidor local
+        if ($invoice->xml_path && !str_starts_with($invoice->xml_path, 'http') && Storage::exists($invoice->xml_path)) {
+            return Storage::download($invoice->xml_path);
         }
 
-        return Storage::download($invoice->xml_path);
+        // 2. Si es una URL o no existe localmente, generar/descargar desde APIsPeru
+        $response = $this->apisPeruService->getInvoiceXml($invoice->loadMissing('details'));
+
+        if ($response->failed()) {
+            return response()->json([
+                'message' => 'No se pudo generar el XML en APIsPeru.',
+                'error'   => $response->json() ?? $response->body()
+            ], $response->status());
+        }
+
+        return response($response->body(), 200, [
+            'Content-Type'        => 'application/xml',
+            'Content-Disposition' => "attachment; filename=\"{$invoice->series}-{$invoice->number}.xml\"",
+        ]);
     }
 
     /**
-     * Descarga de la Constancia de Recepción (CDR Zip de SUNAT).
+     * Descarga de la Constancia de Recepción (CDR Zip de SUNAT guardado en disco local).
      */
     public function downloadCdr(Invoice $invoice)
     {
-        if (!$invoice->cdr_path || !Storage::exists($invoice->cdr_path)) {
-            return response()->json(['message' => 'Archivo CDR no encontrado'], 404);
+        if ($invoice->cdr_path && Storage::disk('local')->exists($invoice->cdr_path)) {
+            return Storage::disk('local')->download($invoice->cdr_path);
         }
 
-        return Storage::download($invoice->cdr_path);
+        if ($invoice->cdr_path && Storage::exists($invoice->cdr_path)) {
+            return Storage::download($invoice->cdr_path);
+        }
+
+        return response()->json(['message' => 'Archivo CDR no encontrado en el servidor.'], 404);
     }
 
     /**
-     * Transmite el PDF del Ticket Térmico (80mm)
+     * Transmite el PDF del Ticket Térmico (80mm).
      */
     public function streamTicket(Invoice $invoice)
     {
@@ -90,13 +130,16 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Transmite el PDF en formato A4
+     * Transmite el PDF en formato A4.
      */
     public function streamPdf(Invoice $invoice)
     {
         return $this->printService->generateA4Pdf($invoice);
     }
 
+    /**
+     * Reintento de envío a SUNAT.
+     */
     public function resendSunat(Invoice $invoice): JsonResponse
     {
         try {

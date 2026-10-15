@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class InvoiceService
 {
@@ -29,9 +30,9 @@ class InvoiceService
         $opUnaffected = 0;
 
         foreach ($items as $item) {
-            $quantity = (float) $item['quantity'];
+            $quantity  = (float) $item['quantity'];
             $unitPrice = (float) $item['unit_price']; // Precio con IGV incluido
-            $taxType = $item['tax_type'] ?? 'TAXED';  // TAXED, EXONERATED, UNAFFECTED
+            $taxType   = $item['tax_type'] ?? 'TAXED';  // TAXED, EXONERATED, UNAFFECTED
 
             $subtotal = $quantity * $unitPrice;
 
@@ -46,7 +47,7 @@ class InvoiceService
         }
 
         $totalIgv = $opTaxed * $igvRate;
-        $total = $opTaxed + $totalIgv + $opExonerated + $opUnaffected;
+        $total    = $opTaxed + $totalIgv + $opExonerated + $opUnaffected;
 
         return [
             'op_taxed'      => round($opTaxed, 2),
@@ -73,8 +74,8 @@ class InvoiceService
             }
 
             $isFactura = strtoupper($lockedOrder->invoice_type ?? 'BOLETA') === 'FACTURA';
-            $docType = $isFactura ? '01' : '03'; // 01 = Factura, 03 = Boleta
-            $series  = $isFactura 
+            $docType   = $isFactura ? '01' : '03'; // 01 = Factura, 03 = Boleta
+            $series    = $isFactura 
                 ? config('services.apisperu.serie_factura', 'F001') 
                 : config('services.apisperu.serie_boleta', 'B001');
 
@@ -86,7 +87,7 @@ class InvoiceService
                 $clientDocType = '0';
             }
 
-            // Fallback seguro de dirección con navegación opcional (?->)
+            // Fallback seguro de dirección
             $clientAddress = $lockedOrder->shipping_address 
                 ?? $lockedOrder->address 
                 ?? $lockedOrder->customer?->address 
@@ -128,15 +129,13 @@ class InvoiceService
 
             $invoice = $this->createInvoice($payload, $user);
 
-            // Actualizar datos de comprobante en la orden con URLs proxy
-            $invoiceNumber = "{$invoice->series}-" . str_pad($invoice->number, 8, '0', STR_PAD_LEFT);
-            $pdfUrl = $invoice->pdf_url ?? $invoice->pdf_path ?? null;
-            $xmlUrl = $invoice->xml_url ?? $invoice->xml_path ?? null;
+            // Actualizar datos de comprobante en la orden con URLs proxy garantizadas
+            $invoiceNumber = "{$invoice->series}-" . str_pad((string) $invoice->number, 8, '0', STR_PAD_LEFT);
 
             $lockedOrder->update([
                 'invoice_number' => $invoiceNumber,
-                'pdf_url'        => $pdfUrl,
-                'xml_url'        => $xmlUrl,
+                'pdf_url'        => url("/api/invoices/{$invoice->id}/pdf"),
+                'xml_url'        => url("/api/invoices/{$invoice->id}/xml"),
             ]);
 
             return $invoice;
@@ -149,7 +148,7 @@ class InvoiceService
     public function createInvoice(array $data, User $user): Invoice
     {
         return DB::transaction(function () use ($data, $user) {
-            $documentType = $data['document_type'];
+            $documentType  = $data['document_type'];
             $paymentMethod = $data['payment_method'] ?? 'CASH';
 
             // 1. Correlativo atómico
@@ -191,7 +190,7 @@ class InvoiceService
                 ]);
             }
 
-            // 4. Descontar Inventario con registerSaleExit
+            // 4. Descontar Inventario
             if (!empty($data['order_id'])) {
                 $order = Order::with('details')->find($data['order_id']);
                 if ($order) {
@@ -253,17 +252,16 @@ class InvoiceService
             ?? $apisResult['message'] 
             ?? 'Procesado por SUNAT';
 
-        // Opcional: Si deseas guardar el ZIP físicamente en el servidor
+        // Guardar archivo ZIP CDR localmente
         $cdrRawBase64 = $resData['sunatResponse']['cdrZip'] ?? $resData['cdrZip'] ?? null;
         $localCdrPath = null;
 
         if ($cdrRawBase64) {
             $fileName = "cdr_{$invoice->series}_{$invoice->number}.zip";
-            \Illuminate\Support\Facades\Storage::disk('local')->put("invoices/cdr/{$fileName}", base64_decode($cdrRawBase64));
+            Storage::disk('local')->put("invoices/cdr/{$fileName}", base64_decode($cdrRawBase64));
             $localCdrPath = "invoices/cdr/{$fileName}";
         }
 
-        // Actualizar registro guardando URLs/Rutas válidas (sin texto base64 largo)
         $invoice->update([
             'sunat_status'        => 'ACCEPTED',
             'sunat_description'   => $description,

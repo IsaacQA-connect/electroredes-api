@@ -6,16 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
+use App\Services\ApisPeruService;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class OrderController extends Controller
 {
     public function __construct(
-        protected OrderService $orderService
+        protected OrderService $orderService,
+        protected ApisPeruService $apisPeruService
     ) {}
 
     public function index(Request $request)
@@ -117,7 +117,7 @@ class OrderController extends Controller
     }
 
     /**
-     * Descarga de comprobantes (proxy seguro con Bearer Token)
+     * Descarga de comprobantes delegada al servicio de APIsPeru
      */
     protected function downloadDocument(Request $request, Order $order, string $format)
     {
@@ -134,59 +134,30 @@ class OrderController extends Controller
             }
         }
 
-        $order->loadMissing('invoice');
+        // Cargar comprobante y sus detalles para armar el payload
+        $order->loadMissing(['invoice.details']);
 
-        // 1. Obtener serie, correlativo y tipo de documento
-        $invoice = $order->invoice;
-        $invoiceNumber = $order->invoice_number;
-
-        $serie  = $invoice?->series ?? ($invoiceNumber ? explode('-', $invoiceNumber)[0] : null);
-        $rawNum = $invoice?->number ?? ($invoiceNumber ? explode('-', $invoiceNumber)[1] : null);
-
-        if (!$serie || $rawNum === null) {
+        if (!$order->invoice) {
             return response()->json([
                 'message' => 'La orden no tiene un comprobante emitido asignado.'
             ], 404);
         }
 
-        // 2. Normalizar correlativo (ej. '00000025' -> '25') y tipoDoc (ej. 3 -> '03')
-        $number = (string) (int) $rawNum;
-
-        $rawTipo = $invoice?->document_type ?? ($order->invoice_type === 'FACTURA' ? '01' : '03');
-        $tipoDoc = str_pad((string) $rawTipo, 2, '0', STR_PAD_LEFT);
-
-        // 3. Parámetros de APIsPeru
-        $token   = config('services.apisperu.token');
-        $ruc     = config('services.apisperu.ruc', config('app.company_ruc', '10723512552'));
-        $baseUrl = config('services.apisperu.url', 'https://facturacion.apisperu.com/api/v1');
-
-        $queryParams = [
-            'ruc'         => $ruc,
-            'tipoDoc'     => $tipoDoc,
-            'serie'       => $serie,
-            'correlativo' => $number,
-        ];
-
-        // 4. Petición autenticada a APIsPeru en segundo plano
-        $response = Http::withToken($token)->get("{$baseUrl}/invoice/{$format}", $queryParams);
+        // Obtener el archivo binario desde APIsPeru
+        $response = $format === 'pdf'
+            ? $this->apisPeruService->getInvoicePdf($order->invoice)
+            : $this->apisPeruService->getInvoiceXml($order->invoice);
 
         if ($response->failed()) {
-            Log::error("Falla al descargar {$format} en APIsPeru", [
-                'order_id' => $order->id,
-                'status'   => $response->status(),
-                'params'   => $queryParams,
-                'body'     => $response->body(),
-            ]);
-
             return response()->json([
                 'message' => 'No se pudo obtener el archivo ' . strtoupper($format) . ' de APIsPeru.',
-                'error'   => $response->json('message') ?? $response->body()
+                'error'   => $response->json() ?? $response->body()
             ], $response->status());
         }
 
-        // 5. Entregar el archivo binario al navegador
-        $filename    = "{$serie}-{$number}.{$format}";
-        $contentType = $format === 'xml' ? 'text/xml' : 'application/pdf';
+        // Entregar el archivo al navegador
+        $filename    = "{$order->invoice->series}-{$order->invoice->number}.{$format}";
+        $contentType = $format === 'xml' ? 'application/xml' : 'application/pdf';
         $disposition = $format === 'xml' ? 'attachment' : 'inline';
 
         return response($response->body(), 200, [

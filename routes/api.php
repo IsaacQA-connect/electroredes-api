@@ -19,7 +19,7 @@ use App\Models\User;
 use Illuminate\Auth\Events\Verified;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Auth\SocialAuthController;
-use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\Api\V1\InvoiceController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -142,6 +142,7 @@ Route::prefix('v1')->group(function () {
         // Rutas de descarga de PDF / XML
         Route::get('orders/{order}/download-pdf', [OrderController::class, 'downloadPdf']);
         Route::get('orders/{order}/download-xml', [OrderController::class, 'downloadXml']);
+        Route::apiResource('orders', OrderController::class);
 
         // Proveedores
         Route::apiResource('suppliers', SupplierController::class);
@@ -173,9 +174,13 @@ Route::prefix('v1')->group(function () {
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::get('/invoices/{invoice}/ticket', [InvoiceController::class, 'streamTicket']);
-        Route::get('/invoices/{invoice}/pdf', [InvoiceDownloadController::class, 'downloadPdf']);
-        Route::get('/invoices/{invoice}/xml', [InvoiceDownloadController::class, 'downloadXml']);
+        Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'downloadPdf']);
+        Route::get('/invoices/{invoice}/xml', [InvoiceController::class, 'downloadXml']);
+        Route::get('/invoices/{invoice}/cdr', [InvoiceController::class, 'downloadCdr']);
+        Route::get('/invoices/{invoice}/ticket', [InvoiceController::class, 'streamTicket']);
+        Route::get('/invoices/{invoice}/stream-pdf', [InvoiceController::class, 'streamPdf']);
         Route::post('/invoices/{invoice}/resend-sunat', [InvoiceController::class, 'resendSunat']);
+        Route::apiResource('invoices', InvoiceController::class);
 
     });
 });

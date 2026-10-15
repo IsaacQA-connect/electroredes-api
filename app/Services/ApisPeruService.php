@@ -18,25 +18,23 @@ class ApisPeruService
     }
 
     /**
-     * Envía un comprobante (Factura/Boleta) a SUNAT mediante APIsPeru.
+     * Construye la estructura UBL 2.1 reutilizable para APIsPeru
      */
-    public function sendInvoice(Invoice $invoice): array
+    public function buildPayload(Invoice $invoice): array
     {
-        // Asegurar que la relación 'details' esté cargada
         $invoice->loadMissing('details');
 
-        // Formatear numDoc para clientes varios o sin documento
-        $clientDocType   = $invoice->client_doc_type ?? '0';
+        $clientDocType   = (string) ($invoice->client_doc_type ?? '0');
         $clientDocNumber = ($clientDocType === '0' || empty($invoice->client_doc_number) || $invoice->client_doc_number === '0')
             ? '00000000'
-            : $invoice->client_doc_number;
+            : (string) $invoice->client_doc_number;
 
-        $payload = [
+        return [
             'ublVersion'     => '2.1',
-            'tipoOperacion'  => '0101', // 👈 AGREGAR ESTA LÍNEA (0101 = Venta Interna)
-            'tipoDoc'        => $invoice->document_type,
+            'tipoOperacion'  => '0101', // Venta Interna
+            'tipoDoc'        => str_pad((string) $invoice->document_type, 2, '0', STR_PAD_LEFT),
             'serie'          => $invoice->series,
-            'correlativo'    => (string) $invoice->number,
+            'correlativo'    => (string) (int) $invoice->number,
             'fechaEmision'   => $invoice->created_at ? $invoice->created_at->format('Y-m-d\TH:i:sP') : now()->setTimezone('America/Lima')->format('Y-m-d\TH:i:sP'),
             'formaPago'      => [
                 'moneda' => $invoice->currency ?? 'PEN',
@@ -71,9 +69,18 @@ class ApisPeruService
             'mtoImpVenta'     => (float) $invoice->total,
             'details'         => $this->mapDetails($invoice),
         ];
+    }
+
+    /**
+     * Envía un comprobante (Factura/Boleta) a SUNAT mediante APIsPeru.
+     */
+    public function sendInvoice(Invoice $invoice): array
+    {
+        $payload = $this->buildPayload($invoice);
 
         try {
-            $response = Http::withToken($this->token)
+            $response = Http::withoutVerifying()
+                ->withToken($this->token)
                 ->acceptJson()
                 ->post("{$this->baseUrl}/invoice/send", $payload);
 
@@ -116,14 +123,34 @@ class ApisPeruService
     }
 
     /**
+     * Genera el archivo PDF binario del comprobante
+     */
+    public function getInvoicePdf(Invoice $invoice)
+    {
+        return Http::withoutVerifying()
+            ->withToken($this->token)
+            ->post("{$this->baseUrl}/invoice/pdf", $this->buildPayload($invoice));
+    }
+
+    /**
+     * Genera el archivo XML firmado del comprobante
+     */
+    public function getInvoiceXml(Invoice $invoice)
+    {
+        return Http::withoutVerifying()
+            ->withToken($this->token)
+            ->post("{$this->baseUrl}/invoice/xml", $this->buildPayload($invoice));
+    }
+
+    /**
      * Mapea el detalle de ítems al formato UBL de APIsPeru.
      */
     private function mapDetails(Invoice $invoice): array
     {
         return $invoice->details->map(function ($detail) {
-            $unitPrice  = round((float) $detail->unit_price, 2);
-            $quantity   = (float) $detail->quantity;
-            $totalItem  = round($unitPrice * $quantity, 2);
+            $unitPrice   = round((float) $detail->unit_price, 2);
+            $quantity    = (float) $detail->quantity;
+            $totalItem   = round($unitPrice * $quantity, 2);
             
             $valorVenta    = round($totalItem / 1.18, 2);
             $valorUnitario = round($valorVenta / $quantity, 2);
@@ -134,10 +161,10 @@ class ApisPeruService
                 'unidad'            => $detail->unit_code ?? 'NIU',
                 'descripcion'       => $detail->product_name ?? 'Producto',
                 'cantidad'          => $quantity,
-                'mtoValorUnitario'  => $valorUnitario,  // Usando la clave oficial mto...
-                'mtoPrecioUnitario' => $unitPrice,      // Usando la clave oficial mto...
-                'mtoValorVenta'     => $valorVenta,     // Usando la clave oficial mto...
-                'mtoBaseIgv'        => $valorVenta,     // Usando la clave oficial mto...
+                'mtoValorUnitario'  => $valorUnitario,
+                'mtoPrecioUnitario' => $unitPrice,
+                'mtoValorVenta'     => $valorVenta,
+                'mtoBaseIgv'        => $valorVenta,
                 'porcentajeIgv'     => 18,
                 'igv'               => $igvItem,
                 'tipAfeIgv'         => '10',
