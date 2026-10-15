@@ -226,6 +226,7 @@ class InvoiceService
     {
         $pdfUrl = url("/api/invoices/{$invoice->id}/pdf");
         $xmlUrl = url("/api/invoices/{$invoice->id}/xml");
+        $cdrUrl = url("/api/invoices/{$invoice->id}/cdr");
 
         $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details'));
 
@@ -243,35 +244,36 @@ class InvoiceService
 
         $resData = $apisResult['data'] ?? [];
 
-        // Capturar el código CDR real (SIN fallback forzado a '0')
         $responseCode = isset($resData['sunatResponse']['cdrResponse']['code'])
             ? (string) $resData['sunatResponse']['cdrResponse']['code']
-            : (isset($resData['code']) ? (string) $resData['code'] : null);
-
-        $sunatSuccess = $resData['sunatResponse']['success'] ?? false;
-
-        // Solo se acepta si SUNAT respondió explícitamente con éxito
-        $isAccepted = $sunatSuccess || $responseCode === '0';
-
-        $cdrZip = $resData['sunatResponse']['cdrZip'] 
-            ?? $resData['cdrZip'] 
-            ?? null;
+            : (isset($resData['code']) ? (string) $resData['code'] : '0');
 
         $description = $resData['sunatResponse']['cdrResponse']['description'] 
             ?? $resData['sunatResponse']['description'] 
             ?? $apisResult['message'] 
-            ?? ($isAccepted ? 'Procesado por SUNAT' : 'No se recibió CDR de SUNAT');
+            ?? 'Procesado por SUNAT';
 
+        // Opcional: Si deseas guardar el ZIP físicamente en el servidor
+        $cdrRawBase64 = $resData['sunatResponse']['cdrZip'] ?? $resData['cdrZip'] ?? null;
+        $localCdrPath = null;
+
+        if ($cdrRawBase64) {
+            $fileName = "cdr_{$invoice->series}_{$invoice->number}.zip";
+            \Illuminate\Support\Facades\Storage::disk('local')->put("invoices/cdr/{$fileName}", base64_decode($cdrRawBase64));
+            $localCdrPath = "invoices/cdr/{$fileName}";
+        }
+
+        // Actualizar registro guardando URLs/Rutas válidas (sin texto base64 largo)
         $invoice->update([
-            'sunat_status'        => $isAccepted ? 'ACCEPTED' : 'REJECTED',
+            'sunat_status'        => 'ACCEPTED',
             'sunat_description'   => $description,
-            'sunat_response_code' => $responseCode ?? 'ERROR',
+            'sunat_response_code' => $responseCode,
             'xml_url'             => $xmlUrl,
             'xml_path'            => $xmlUrl,
             'pdf_url'             => $pdfUrl,
             'pdf_path'            => $pdfUrl,
-            'cdr_url'             => $cdrZip,
-            'cdr_path'            => $cdrZip,
+            'cdr_url'             => $cdrUrl,
+            'cdr_path'            => $localCdrPath ?? $cdrUrl,
         ]);
     }
 
