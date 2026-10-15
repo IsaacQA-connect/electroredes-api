@@ -89,7 +89,7 @@ class InvoiceService
 
             // Fallback seguro de dirección
             $clientAddress = $lockedOrder->shipping_address 
-                ?? $lockedOrder->address 
+                ?? $lockedOrder->notes 
                 ?? $lockedOrder->customer?->address 
                 ?? 'CIUDAD';
 
