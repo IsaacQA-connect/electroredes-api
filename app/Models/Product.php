@@ -17,6 +17,7 @@ class Product extends Model
         'name',
         'description',
         'image_path',
+        'location',
         'unit',
         'cost',
         'sale_price',

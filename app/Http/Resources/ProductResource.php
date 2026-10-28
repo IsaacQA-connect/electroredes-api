@@ -40,6 +40,7 @@ class ProductResource extends JsonResource
 
             'status' => $this->status,
             'image_path'   => $this->image_path,
+            'location' => $this->location,
 
             'category_id' => $this->category_id,
 
