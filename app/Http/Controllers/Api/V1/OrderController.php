@@ -47,14 +47,36 @@ class OrderController extends Controller
 
     public function store(StoreOrderRequest $request): JsonResponse
     {
+        // 1. Crear la orden y descontar stock mediante OrderService
         $order = $this->orderService->create(
             $request->validated(),
             $request->user()
         );
 
+        // 2. Cargar relaciones requeridas
+        $order->load(['customer', 'details.product', 'payments', 'invoice']);
+
+        // 3. Evaluar qué productos quedaron en o por debajo del stock mínimo
+        $lowStockProducts = [];
+        foreach ($order->details as $detail) {
+            $product = $detail->product;
+            if ($product && $product->stock <= $product->min_stock) {
+                $lowStockProducts[] = [
+                    'id'        => $product->id,
+                    'name'      => $product->name,
+                    'stock'     => (float) $product->stock,
+                    'min_stock' => (float) $product->min_stock,
+                ];
+            }
+        }
+
+        // 4. Resolver el recurso de la orden e adjuntar el arreglo de bajo stock
+        $responseData = (new OrderResource($order))->resolve($request);
+        $responseData['low_stock_products'] = $lowStockProducts;
+
         return response()->json([
             'message' => 'Venta registrada correctamente.',
-            'data'    => new OrderResource($order->load(['customer', 'details.product', 'payments', 'invoice'])),
+            'data'    => $responseData,
         ], 201);
     }
 
