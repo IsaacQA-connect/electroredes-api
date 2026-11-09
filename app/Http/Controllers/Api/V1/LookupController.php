@@ -14,8 +14,8 @@ class LookupController extends Controller
             return response()->json(['message' => 'El DNI debe tener 8 dígitos'], 422);
         }
 
-        $token = config('services.apisperu.token');
-        $baseUrl = config('services.apisperu.lookup_url', 'https://dniruc.apisperu.com/api/v1');
+        $token   = config('services.apisperu.lookup.token');
+        $baseUrl = config('services.apisperu.lookup.url');
 
         $response = Http::withToken($token)->get("{$baseUrl}/dni/{$dni}");
 
