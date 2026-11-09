@@ -19,8 +19,13 @@ class LookupController extends Controller
 
         $response = Http::withToken($token)->get("{$baseUrl}/dni/{$dni}");
 
+        // Si la respuesta falla, devolvemos el código y mensaje real que retorna APIsPeru
         if ($response->failed()) {
-            return response()->json(['message' => 'No se encontraron datos para el DNI'], 404);
+            return response()->json([
+                'message' => 'Error en la consulta con APIsPeru',
+                'status_code' => $response->status(),
+                'apisperu_response' => $response->json() ?? $response->body()
+            ], $response->status());
         }
 
         $data = $response->json();
