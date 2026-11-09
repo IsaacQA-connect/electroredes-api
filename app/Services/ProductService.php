@@ -19,7 +19,10 @@ class ProductService
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                     ->orWhere('code', 'like', "%{$search}%")
-                    ->orWhere('barcode', 'like', "%{$search}%");
+                    ->orWhere('barcode', 'like', "%{$search}%")
+                    ->orWhereHas('brand', function ($b) use ($search) {
+                        $b->where('name', 'LIKE', "%{$search}%");
+                    });
             });
         }
 

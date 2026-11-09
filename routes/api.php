@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\CashRegisterController;
 use App\Http\Controllers\Api\V1\CategoryController;
-use App\Http\Controllers\Api\V1\CustomerController;
+//use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\InventoryController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderReturnController;
@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\PurchaseController;
 use App\Http\Controllers\Api\V1\SupplierController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\BrandController;
+use App\Http\Controllers\Api\V1\LookupController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -168,6 +169,9 @@ Route::prefix('v1')->group(function () {
 
         // Consulta Ruc
         Route::get('/lookup/{type}/{number}', [App\Http\Controllers\CustomerLookupController::class, 'lookup']);
+        // Consulta DNI y RUC usando APIsPeru
+        Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
+        Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
 
         // Facturación Electrónica
         Route::get('/invoices', [InvoiceController::class, 'index']);

@@ -47,6 +47,7 @@ return [
 
     'apisperu' => [
         'url'             => env('APISPERU_URL', 'https://facturacion.apisperu.com/api/v1'),
+        'lookup_url' => env('APISPERU_URL_LOOKUP', 'https://dniruc.apisperu.com/api/v1'),
         'token'           => env('APISPERU_TOKEN'),
         'ruc'             => env('APISPERU_RUC_EMISOR'),
         'razon_social'    => env('APISPERU_RAZON_SOCIAL', 'ELECTRO REDES S.A.C.'),
