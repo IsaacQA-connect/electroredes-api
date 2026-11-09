@@ -172,6 +172,8 @@ Route::prefix('v1')->group(function () {
         // Consulta DNI y RUC usando APIsPeru
         Route::get('/lookup/dni/{dni}', [CustomerLookupController::class, 'searchDni']);
         Route::get('/lookup/ruc/{ruc}', [CustomerLookupController::class, 'searchRuc']);
+        Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
+        Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
 
         // Facturación Electrónica
         Route::get('/invoices', [InvoiceController::class, 'index']);
