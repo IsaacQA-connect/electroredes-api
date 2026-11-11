@@ -58,7 +58,7 @@ class ChatbotController extends Controller
         }
 
         // Endpoint oficial de Google Gemini 1.5 Flash
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={$apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={$apiKey}";
 
         try {
             $response = Http::timeout(10)->post($url, [
