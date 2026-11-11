@@ -75,7 +75,7 @@ class ChatbotController extends Controller
             ], 200);
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite:generateContent?key={$apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={$apiKey}";
 
         try {
             $response = Http::timeout(15)->post($url, [
