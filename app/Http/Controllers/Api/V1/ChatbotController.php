@@ -21,7 +21,7 @@ class ChatbotController extends Controller
         $products = DB::table('products')
             ->select('code', 'name', 'brand_id', 'sale_price', 'stock', 'unit')
             ->where('name', 'LIKE', "%{$userMessage}%")
-            ->orWhere('brand', 'LIKE', "%{$userMessage}%")
+            ->orWhere('brand_id', 'LIKE', "%{$userMessage}%")
             ->orWhere('code', 'LIKE', "%{$userMessage}%")
             ->limit(5)
             ->get();
