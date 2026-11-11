@@ -69,4 +69,6 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', 'https://electroredes-api.test/api/v1/auth/google/callback'),
     ],
 
+    'gemini' => ['key' => env('GEMINI_API_KEY')],
+
 ];
