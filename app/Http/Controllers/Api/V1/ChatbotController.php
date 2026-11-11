@@ -16,52 +16,69 @@ class ChatbotController extends Controller
             'message' => 'required|string|max:500',
         ]);
 
-        $userMessage = $request->input('message');
+        $userMessage = trim($request->input('message'));
 
-        // 1. RAG: Buscar productos en MySQL con los campos reales
-        $products = DB::table('products')
-            ->select('code', 'name', 'brand_id', 'sale_price', 'stock', 'unit')
-            ->where('name', 'LIKE', "%{$userMessage}%")
-            ->orWhere('code', 'LIKE', "%{$userMessage}%")
-            ->limit(5)
-            ->get();
+        // 1. Limpieza y tokenización de palabras clave
+        $stopWords = ['tienen', 'busco', 'precio', 'de', 'del', 'para', 'con', 'el', 'la', 'los', 'las', 'un', 'una', 'en', 'hay', 'cotizar', 'cuanto', 'cuesta'];
+        $cleanMessage = preg_replace('/[^\w\s]/u', '', mb_strtolower($userMessage));
+        $rawWords = explode(' ', $cleanMessage);
+        
+        $keywords = array_values(array_filter($rawWords, function($word) use ($stopWords) {
+            return strlen($word) >= 3 && !in_array($word, $stopWords);
+        }));
 
-        // 2. Formatear el contexto
+        // 2. Consulta RAG optimizada en MySQL
+        $query = DB::table('products')
+            ->select('products.code', 'products.name', 'products.sale_price', 'products.stock', 'products.unit');
+
+        if (!empty($keywords)) {
+            $query->where(function($q) use ($keywords) {
+                foreach ($keywords as $word) {
+                    $q->orWhere('products.name', 'LIKE', "%{$word}%")
+                      ->orWhere('products.code', 'LIKE', "%{$word}%");
+                }
+            });
+        } else {
+            $query->where('products.name', 'LIKE', "%{$userMessage}%");
+        }
+
+        $products = $query->limit(5)->get();
+
+        // 3. Formatear contexto para el Prompt
         $context = "INFORMACIÓN REAL DE INVENTARIO Y STOCK:\n";
         if ($products->isEmpty()) {
             $context .= "No se encontraron productos exactos en el catálogo para esta búsqueda.\n";
         } else {
             foreach ($products as $p) {
                 $status = $p->stock > 0 ? "Disponible ({$p->stock} {$p->unit})" : "AGOTADO";
-                $context .= "- SKU/Código: {$p->code} | {$p->name} | Precio: S/ {$p->sale_price} | Stock: {$status}\n";
+                $context .= "- Código: {$p->code} | {$p->name} | Precio: S/ {$p->sale_price} | Stock: {$status}\n";
             }
         }
 
-        // 3. System Prompt
-        $systemPrompt = "Eres 'ElectriBOT', el asistente virtual experto de ELECTRO REDES (tienda de materiales eléctricos en Moquegua).
+        // 4. System Prompt refinado
+        $systemPrompt = "Eres 'ElectroBOT', el asistente virtual experto de ELECTRO REDES (tienda de materiales eléctricos en Moquegua).
         REGLAS ESTRICTAS:
         1. Responde de forma amable, profesional y concisa (máximo 3 oraciones por respuesta).
         2. Usa ÚNICAMENTE la siguiente información real del inventario para responder sobre precios y stock:
         {$context}
-        3. Si el stock es 0 o el producto no está en el catálogo, o si el usuario pide hablar con una persona, incluye al final de tu respuesta la etiqueta especial: [ESCALAR_WHATSAPP].
+        3. Si la lista de productos está vacía, el stock es 0 o el usuario solicita atención personalizada, incluye al final de tu respuesta obligatoriamente la etiqueta: [ESCALAR_WHATSAPP].
         4. Todos los precios están expresados en Soles peruanos (S/).";
 
-        // 4. Clave de API (Lectura segura)
+        // 5. Clave API y llamada HTTP
         $apiKey = config('services.gemini.key') ?? env('GEMINI_API_KEY');
 
         if (!$apiKey) {
-            Log::error('Chatbot Error: GEMINI_API_KEY no está configurada en .env o config');
+            Log::error('Chatbot Error: GEMINI_API_KEY no está configurada.');
             return response()->json([
                 'reply' => 'El servicio de IA no tiene configurada la credencial API.',
                 'needs_human' => true
             ], 200);
         }
 
-        // Endpoint oficial de Google Gemini 1.5 Flash
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={$apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={$apiKey}";
 
         try {
-            $response = Http::timeout(10)->post($url, [
+            $response = Http::timeout(15)->post($url, [
                 'contents' => [
                     [
                         'parts' => [
@@ -72,9 +89,7 @@ class ChatbotController extends Controller
             ]);
 
             if ($response->failed()) {
-                // Registrar el error exacto en storage/logs/laravel.log
                 Log::error('Gemini API Error Response: ' . $response->body());
-
                 return response()->json([
                     'reply' => 'Error de conexión con la IA de Google: ' . $response->status() . ' - ' . $response->json('error.message', 'Falla remota'),
                     'needs_human' => true
