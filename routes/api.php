@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\SupplierController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\BrandController;
 use App\Http\Controllers\Api\V1\LookupController;
+use App\Http\Controllers\Api\V1\ChatbotController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -37,6 +38,7 @@ Route::prefix('v1')->group(function () {
     Route::post('payments/webhook', [PaymentController::class, 'handleWebhook']);
     Route::get('/auth/{provider}/redirect', [SocialAuthController::class, 'redirectToProvider']);
     Route::get('/auth/{provider}/callback', [SocialAuthController::class, 'handleProviderCallback']);
+    Route::post('/chatbot/query', [ChatbotController::class, 'query']);
 
     // 1. Olvidó contraseña (Solicitar token)
     Route::post('/forgot-password', [AuthController::class, 'sendResetLink']);
