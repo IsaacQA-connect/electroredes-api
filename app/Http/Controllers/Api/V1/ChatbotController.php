@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ChatbotController extends Controller
 {
@@ -17,27 +18,26 @@ class ChatbotController extends Controller
 
         $userMessage = $request->input('message');
 
-        // 1. RAG: Buscar productos relevantes en la base de datos de MySQL
+        // 1. RAG: Buscar productos en MySQL con los campos reales
         $products = DB::table('products')
             ->select('code', 'name', 'brand_id', 'sale_price', 'stock', 'unit')
             ->where('name', 'LIKE', "%{$userMessage}%")
-            ->orWhere('brand_id', 'LIKE', "%{$userMessage}%")
             ->orWhere('code', 'LIKE', "%{$userMessage}%")
             ->limit(5)
             ->get();
 
-        // 2. Formatear el contexto extraído de la base de datos
+        // 2. Formatear el contexto
         $context = "INFORMACIÓN REAL DE INVENTARIO Y STOCK:\n";
         if ($products->isEmpty()) {
             $context .= "No se encontraron productos exactos en el catálogo para esta búsqueda.\n";
         } else {
             foreach ($products as $p) {
                 $status = $p->stock > 0 ? "Disponible ({$p->stock} {$p->unit})" : "AGOTADO";
-                $context .= "- SKU: {$p->code} | {$p->name} | Marca: {$p->brand_id} | Precio: S/ {$p->sale_price} | Stock: {$status}\n";
+                $context .= "- SKU/Código: {$p->code} | {$p->name} | Precio: S/ {$p->sale_price} | Stock: {$status}\n";
             }
         }
 
-        // 3. Crear el System Prompt con las reglas del negocio
+        // 3. System Prompt
         $systemPrompt = "Eres 'ElectriBOT', el asistente virtual experto de ELECTRO REDES (tienda de materiales eléctricos en Moquegua).
         REGLAS ESTRICTAS:
         1. Responde de forma amable, profesional y concisa (máximo 3 oraciones por respuesta).
@@ -46,12 +46,22 @@ class ChatbotController extends Controller
         3. Si el stock es 0 o el producto no está en el catálogo, o si el usuario pide hablar con una persona, incluye al final de tu respuesta la etiqueta especial: [ESCALAR_WHATSAPP].
         4. Todos los precios están expresados en Soles peruanos (S/).";
 
-        // 4. Consumir la API oficial de Google Gemini
-        $apiKey = env('GEMINI_API_KEY');
+        // 4. Clave de API (Lectura segura)
+        $apiKey = config('services.gemini.key') ?? env('GEMINI_API_KEY');
+
+        if (!$apiKey) {
+            Log::error('Chatbot Error: GEMINI_API_KEY no está configurada en .env o config');
+            return response()->json([
+                'reply' => 'El servicio de IA no tiene configurada la credencial API.',
+                'needs_human' => true
+            ], 200);
+        }
+
+        // Endpoint oficial de Google Gemini 1.5 Flash
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}";
 
         try {
-            $response = Http::post($url, [
+            $response = Http::timeout(10)->post($url, [
                 'contents' => [
                     [
                         'parts' => [
@@ -62,16 +72,18 @@ class ChatbotController extends Controller
             ]);
 
             if ($response->failed()) {
+                // Registrar el error exacto en storage/logs/laravel.log
+                Log::error('Gemini API Error Response: ' . $response->body());
+
                 return response()->json([
-                    'reply' => 'Lo siento, en este momento tengo problemas para consultar el sistema. ¿Deseas contactar con un asesor?',
+                    'reply' => 'Error de conexión con la IA de Google: ' . $response->status() . ' - ' . $response->json('error.message', 'Falla remota'),
                     'needs_human' => true
-                ], 500);
+                ], 200);
             }
 
             $responseData = $response->json();
             $botReply = $responseData['candidates'][0]['content']['parts'][0]['text'] ?? 'No pude procesar la respuesta.';
 
-            // Detectar si requiere derivar a atención humana
             $needsHuman = str_contains($botReply, '[ESCALAR_WHATSAPP]');
             $cleanReply = str_replace('[ESCALAR_WHATSAPP]', '', $botReply);
 
@@ -82,10 +94,11 @@ class ChatbotController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            Log::error('Chatbot Exception: ' . $e->getMessage());
             return response()->json([
-                'reply' => 'Ocurrió un error inesperado al conectar con el asistente.',
+                'reply' => 'Excepción en servidor: ' . $e->getMessage(),
                 'needs_human' => true
-            ], 500);
+            ], 200);
         }
     }
 }
