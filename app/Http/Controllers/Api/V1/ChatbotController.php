@@ -19,10 +19,10 @@ class ChatbotController extends Controller
 
         // 1. RAG: Buscar productos relevantes en la base de datos de MySQL
         $products = DB::table('products')
-            ->select('sku', 'name', 'brand', 'price', 'stock', 'unit_type')
+            ->select('code', 'name', 'brand', 'price', 'stock', 'unit_type')
             ->where('name', 'LIKE', "%{$userMessage}%")
             ->orWhere('brand', 'LIKE', "%{$userMessage}%")
-            ->orWhere('sku', 'LIKE', "%{$userMessage}%")
+            ->orWhere('code', 'LIKE', "%{$userMessage}%")
             ->limit(5)
             ->get();
 
@@ -33,7 +33,7 @@ class ChatbotController extends Controller
         } else {
             foreach ($products as $p) {
                 $status = $p->stock > 0 ? "Disponible ({$p->stock} {$p->unit_type})" : "AGOTADO";
-                $context .= "- SKU: {$p->sku} | {$p->name} | Marca: {$p->brand} | Precio: S/ {$p->price} | Stock: {$status}\n";
+                $context .= "- SKU: {$p->code} | {$p->name} | Marca: {$p->brand} | Precio: S/ {$p->price} | Stock: {$status}\n";
             }
         }
 
