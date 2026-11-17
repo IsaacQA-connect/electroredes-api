@@ -65,4 +65,12 @@ class StoreCustomerRequest extends FormRequest
             ],
         ];
     }
+    public function messages(): array
+    {
+        return [
+            'name.required'          => 'El nombre completo o razón social es obligatorio.',
+            'document_type.in'       => 'El tipo de documento seleccionado no es válido.',
+            'document_number.unique' => 'Este número de documento ya se encuentra registrado en otra cuenta.',
+        ];
+    }
 }
