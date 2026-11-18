@@ -21,10 +21,10 @@ class PaymentResource extends JsonResource
             'method' => $this->method?->value,
 
             'method_label' => match ($this->method?->value) {
-                'CASH' => 'Efectivo',
-                'YAPE' => 'Yape',
-                'BANK_TRANSFER' => 'Transferencia bancaria',
-                'ONLINE_PAYMENT' => 'Pago en línea',
+                PaymentMethod::CASH => 'Efectivo',
+                PaymentMethod::YAPE => 'Yape',
+                PaymentMethod::BANK_TRANSFER => 'Transferencia bancaria',
+                PaymentMethod::ONLINE_PAYMENT => 'Pago en línea',
                 default => 'Desconocido',
             },
 
