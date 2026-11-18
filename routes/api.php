@@ -39,8 +39,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/auth/{provider}/redirect', [SocialAuthController::class, 'redirectToProvider']);
     Route::get('/auth/{provider}/callback', [SocialAuthController::class, 'handleProviderCallback']);
     Route::post('/chatbot/query', [ChatbotController::class, 'query']);
-    Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
-    Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
+    //Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
+    //Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
 
     // 1. Olvidó contraseña (Solicitar token)
     Route::post('/forgot-password', [AuthController::class, 'sendResetLink']);
@@ -176,8 +176,8 @@ Route::prefix('v1')->group(function () {
         // Consulta DNI y RUC usando APIsPeru
         Route::get('/lookup/dni/{dni}', [CustomerLookupController::class, 'searchDni']);
         Route::get('/lookup/ruc/{ruc}', [CustomerLookupController::class, 'searchRuc']);
-        //Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
-        //Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
+        Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
+        Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
 
         // Facturación Electrónica
         Route::get('/invoices', [InvoiceController::class, 'index']);
