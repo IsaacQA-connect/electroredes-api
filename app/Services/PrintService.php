@@ -51,7 +51,7 @@ class PrintService
      */
     private function generateSunatQrBase64(Invoice $invoice): string
     {
-        $companyRuc = config('app.company_ruc', '20000000000');
+        $companyRuc = config('app.company_ruc', '10723512552');
 
         $qrText = implode('|', [
             $companyRuc,
@@ -79,11 +79,11 @@ class PrintService
     {
         return [
             'ruc'          => config('app.company_ruc', '20000000000'),
-            'name'         => config('app.company_name', 'MI EMPRESA S.A.C.'),
-            'trade_name'   => config('app.company_commercial_name', 'MI EMPRESA'),
-            'address'      => config('app.company_address', 'AV. PRINCIPAL 123 - MOQUEGUA'),
-            'phone'        => config('app.company_phone', '987654321'),
-            'email'        => config('app.company_email', 'ventas@miempresa.com'),
+            'name'         => config('app.company_name', 'HERRERA PAREDEZ EVENZ NOE'),
+            'trade_name'   => config('app.company_commercial_name', 'ELECTROREDES'),
+            'address'      => config('app.company_address', 'Asoc. 8 de diciembre Mz-H1 Lt-8 - Moquegua'),
+            'phone'        => config('app.company_phone', '933437116'),
+            'email'        => config('app.company_email', 'evenz.herrera@gmail.com'),
         ];
     }
 }

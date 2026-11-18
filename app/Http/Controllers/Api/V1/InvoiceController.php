@@ -67,6 +67,11 @@ class InvoiceController extends Controller
         $response = $this->apisPeruService->getInvoicePdf($invoice->loadMissing('details'));
 
         if ($response->failed()) {
+            // Si APIsPeru falla o devuelve 404, genera el PDF local con streamPdf
+            if (method_exists($this, 'streamPdf')) {
+                return $this->streamPdf($invoice);
+            }
+
             return response()->json([
                 'message' => 'No se pudo generar el PDF en APIsPeru.',
                 'error'   => $response->json() ?? $response->body()
