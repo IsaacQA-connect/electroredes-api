@@ -134,8 +134,8 @@ class InvoiceService
 
             $lockedOrder->update([
                 'invoice_number' => $invoiceNumber,
-                'pdf_url'        => url("/api/invoices/{$invoice->id}/pdf"),
-                'xml_url'        => url("/api/invoices/{$invoice->id}/xml"),
+                'pdf_url'        => url("/api/v1/invoices/{$invoice->id}/pdf"),
+                'xml_url'        => url("/api/v1/invoices/{$invoice->id}/xml"),
             ]);
 
             return $invoice;
@@ -223,9 +223,9 @@ class InvoiceService
 
     private function processSunatEmission(Invoice $invoice): void
     {
-        $pdfUrl = url("/api/invoices/{$invoice->id}/pdf");
-        $xmlUrl = url("/api/invoices/{$invoice->id}/xml");
-        $cdrUrl = url("/api/invoices/{$invoice->id}/cdr");
+        $pdfUrl = url("/api/v1/invoices/{$invoice->id}/pdf");
+        $xmlUrl = url("/api/v1/invoices/{$invoice->id}/xml");
+        $cdrUrl = url("/api/v1/invoices/{$invoice->id}/cdr");
 
         $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details'));
 
