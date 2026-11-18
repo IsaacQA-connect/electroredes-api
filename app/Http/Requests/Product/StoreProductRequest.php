@@ -4,7 +4,6 @@ namespace App\Http\Requests\Product;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreProductRequest extends FormRequest
 {
@@ -30,10 +29,15 @@ class StoreProductRequest extends FormRequest
                 'exists:categories,id',
             ],
 
-            'brand_id' => 'nullable|exists:brands,id',
+            'brand_id' => [
+                'nullable',
+                'integer',
+                'exists:brands,id',
+            ],
 
+            // Si llega vacío, ProductService generará el SKU correlativo automáticamente
             'code' => [
-                'required',
+                'nullable',
                 'string',
                 'max:50',
                 'unique:products,code',
@@ -75,6 +79,12 @@ class StoreProductRequest extends FormRequest
                 'min:0',
             ],
 
+            'stock' => [
+                'sometimes',
+                'numeric',
+                'min:0',
+            ],
+
             'minimum_stock' => [
                 'sometimes',
                 'numeric',
@@ -84,6 +94,21 @@ class StoreProductRequest extends FormRequest
             'status' => [
                 'sometimes',
                 'boolean',
+            ],
+
+            // Imagen subida desde PC o pegada con Ctrl + V
+            'image' => [
+                'nullable',
+                'image',
+                'mimes:jpeg,png,webp',
+                'max:2048',
+            ],
+
+            // URL externa obtenida al escanear el código de barras
+            'image_url' => [
+                'nullable',
+                'url',
+                'max:500',
             ],
         ];
     }

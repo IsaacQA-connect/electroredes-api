@@ -112,6 +112,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('categories/{category}/status', [CategoryController::class, 'changeStatus']);
 
         // Productos (Gestión administrativa)
+        Route::get('/products/next-sku', [ProductController::class, 'nextSku']);
+        Route::get('/products/barcode-lookup/{barcode}', [ProductController::class, 'lookupBarcode']);
         Route::apiResource('products', ProductController::class)->except(['index', 'show', 'destroy']);
         Route::post('products/{product}/image', [ProductController::class, 'uploadImage']);
         Route::patch('products/{product}/status', [ProductController::class, 'changeStatus']);
