@@ -64,7 +64,7 @@ class ProductController extends Controller
         }
 
         // 2. Consultar APIs públicas con caché de 30 días
-        $data = Cache::remember("barcode_lookup_{$barcode}", now()->addDays(30), function () use ($barcode) {
+        $data = Cache::remember("barcode_lookup_v2_{$barcode}", now()->addDays(30), function () use ($barcode) {
             // Fuente A: UPCitemdb (Tecnología, hardware y retail)
             try {
                 $upcRes = Http::timeout(5)
@@ -123,10 +123,13 @@ class ProductController extends Controller
         }
 
         try {
-            $res = Http::timeout(4)->get($url);
+            $res = Http::timeout(5)
+                ->withHeaders(['User-Agent' => 'ElectroRedesPOS/1.0 (contacto@soportecenter.com)'])
+                ->get($url);
+
             $mime = $res->header('Content-Type', '');
 
-            if ($res->successful() && str_starts_with($mime, 'image/') && strlen($res->body()) <= 512000) {
+            if ($res->successful() && str_starts_with($mime, 'image/') && strlen($res->body()) <= 1500000) {
                 return 'data:' . explode(';', $mime)[0] . ';base64,' . base64_encode($res->body());
             }
         } catch (\Throwable $e) {
