@@ -73,10 +73,14 @@ class InvoiceService
                 return $existingInvoice;
             }
 
-            // Soportar tanto campos de Web (invoice_type) como de POS (document_type)
-            $rawType   = strtoupper((string) ($lockedOrder->document_type ?? $lockedOrder->invoice_type ?? 'BOLETA'));
-            $isNota    = in_array($rawType, ['NOTA_VENTA', 'NV']);
-            $isFactura = in_array($rawType, ['FACTURA', '01']);
+            // 2. Detectar tipo de comprobante (priorizar invoice_type si document_type trae 'DNI'/'RUC')
+            $candidateType = strtoupper((string) ($lockedOrder->invoice_type ?? ''));
+            if (!in_array($candidateType, ['BOLETA', 'FACTURA', 'NOTA_VENTA', 'NV', '01', '03'])) {
+                $candidateType = strtoupper((string) ($lockedOrder->document_type ?? 'BOLETA'));
+            }
+
+            $isNota    = in_array($candidateType, ['NOTA_VENTA', 'NV']);
+            $isFactura = in_array($candidateType, ['FACTURA', '01']);
 
             $docType = $isNota ? 'NV' : ($isFactura ? '01' : '03'); // NV = Nota, 01 = Factura, 03 = Boleta
             $series  = $isNota
@@ -85,7 +89,7 @@ class InvoiceService
                     ? config('services.apisperu.serie_factura', 'F001')
                     : config('services.apisperu.serie_boleta', 'B001'));
 
-            // Documento y nombre del cliente (Web o POS)
+            // 3. Documento y nombre del cliente (Web o POS)
             $docNumber = trim((string) ($lockedOrder->customer_document ?? $lockedOrder->document_number ?? ''));
 
             // Determinar tipo de documento cliente (6: RUC, 1: DNI, 0: Sin doc)
@@ -106,21 +110,26 @@ class InvoiceService
                 $clientName = 'CLIENTES VARIOS';
             }
 
-            // Fallback seguro de dirección
-            $clientAddress = $lockedOrder->shipping_address
+            // 4. Fallback seguro de dirección (limitado a 250 caracteres para evitar truncamiento en BD)
+            $rawAddress = $lockedOrder->shipping_address
                 ?? $lockedOrder->notes
                 ?? $lockedOrder->customer?->address
                 ?? 'CIUDAD';
+            $clientAddress = mb_substr(trim((string) $rawAddress), 0, 250) ?: 'CIUDAD';
 
-            // Normalizar método de pago para caja chica ('EFECTIVO' -> 'CASH')
-            $rawPayment = strtoupper((string) (
-                $lockedOrder->payment_method
-                ?? $lockedOrder->payments->first()?->method
-                ?? 'ONLINE_PAYMENT'
-            ));
+            // 5. Extraer método de pago soportando BackedEnum (App\Enums\PaymentMethod) o string
+            $rawMethodSource = $lockedOrder->payment_method
+                ?? $lockedOrder->payments()->latest()->first()?->method
+                ?? 'ONLINE_PAYMENT';
+
+            $rawPayment = strtoupper(
+                $rawMethodSource instanceof \BackedEnum
+                    ? (string) $rawMethodSource->value
+                    : (string) $rawMethodSource
+            );
             $paymentMethod = in_array($rawPayment, ['EFECTIVO', 'CASH']) ? 'CASH' : $rawPayment;
 
-            // Mapear los items de la Orden
+            // 6. Mapear los items de la Orden
             $items = $lockedOrder->details->map(function ($detail) {
                 return [
                     'product_id'   => $detail->product_id,
