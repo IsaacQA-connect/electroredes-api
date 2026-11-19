@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -62,9 +63,6 @@ class ChatbotController extends Controller
             return $this->fallbackResponse($userMessage);
         }
 
-        // Modelo vigente de baja latencia y bajo costo
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={$apiKey}";
-
         // 4. System Prompt alineado al catálogo real y ahorro de tokens
         $systemInstruction = "Eres 'ElectriBOT', asesor técnico-comercial de ELECTROREDES en Moquegua (Dirección: {$this->storeAddress}, WhatsApp: 933437116).
 
@@ -87,13 +85,13 @@ REGLAS ESTRICTAS:
                 'functionDeclarations' => [
                     [
                         'name'        => 'buscar_productos_catalogo',
-                        'description' => 'Busca productos activos en el inventario de ELECTROREDES por nombre, código, marca o categoría.',
+                        'description' => 'Busca productos activos en el inventario de ELECTROREDES por nombre, código, marca o categoría, o lista productos destacados si la consulta es general.',
                         'parameters'  => [
                             'type'       => 'OBJECT',
                             'properties' => [
                                 'termino' => [
                                     'type'        => 'STRING',
-                                    'description' => 'Palabra clave principal del producto (ej: monitor, cable, termomagnetica, energia, router).'
+                                    'description' => 'Palabra clave principal del producto (ej: monitor, cable, termomagnetica, energia, router) o "general" si pide ver todo el catálogo.'
                                 ],
                                 'marca' => [
                                     'type'        => 'STRING',
@@ -121,8 +119,8 @@ REGLAS ESTRICTAS:
         $searchWasEmpty = false;
 
         try {
-            // Primera llamada a Gemini
-            $response = Http::timeout(20)->post($url, [
+            // Primera llamada a Gemini con respaldo automático entre modelos
+            $data = $this->callGeminiWithFallback($apiKey, [
                 'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
                 'contents'          => $contents,
                 'tools'             => $tools,
@@ -132,12 +130,10 @@ REGLAS ESTRICTAS:
                 ]
             ]);
 
-            if ($response->failed()) {
-                Log::error('Gemini Error 1: ' . $response->body());
+            if (!$data) {
                 return $this->fallbackResponse($userMessage);
             }
 
-            $data = $response->json();
             $candidate = $data['candidates'][0]['content'] ?? null;
             $parts = $candidate['parts'] ?? [];
 
@@ -191,22 +187,25 @@ REGLAS ESTRICTAS:
                     ]
                 ];
 
-                // Segunda llamada a Gemini con resultados reales
-                $secondResponse = Http::timeout(20)->post($url, [
+                // Segunda llamada a Gemini con resultados reales (incluyendo 'tools' requerido por v1beta)
+                $finalData = $this->callGeminiWithFallback($apiKey, [
                     'systemInstruction' => ['parts' => [['text' => $systemInstruction]]],
                     'contents'          => $contents,
+                    'tools'             => $tools,
+                    'toolConfig'        => [
+                        'functionCallingConfig' => ['mode' => 'NONE']
+                    ],
                     'generationConfig'  => [
                         'temperature'     => 0.2,
                         'maxOutputTokens' => 550,
                     ]
                 ]);
 
-                if ($secondResponse->failed()) {
-                    Log::error('Gemini Error 2: ' . $secondResponse->body());
+                if (!$finalData) {
                     return $this->fallbackResponse($userMessage);
                 }
 
-                $finalParts = $secondResponse->json('candidates.0.content.parts', []);
+                $finalParts = $finalData['candidates'][0]['content']['parts'] ?? [];
                 $botReply = collect($finalParts)->pluck('text')->filter()->implode("\n")
                     ?: 'No pude procesar los datos del catálogo.';
             } else {
@@ -257,15 +256,78 @@ REGLAS ESTRICTAS:
     }
 
     /**
+     * Llama a Gemini rotando entre modelos si hay saturación (503/429) o timeout
+     * y envía la API Key por cabecera HTTP para no exponerla en los logs.
+     */
+    private function callGeminiWithFallback(string $apiKey, array $payload): ?array
+    {
+        $models = [
+            'gemini-3.5-flash-lite',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash-lite',
+            'gemini-2.5-flash',
+        ];
+
+        foreach ($models as $model) {
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+
+            try {
+                $response = Http::withHeaders([
+                        'x-goog-api-key' => $apiKey,
+                        'Content-Type'   => 'application/json',
+                    ])
+                    ->connectTimeout(6)
+                    ->timeout(14)
+                    ->post($url, $payload);
+
+                if ($response->successful()) {
+                    return $response->json();
+                }
+
+                if (in_array($response->status(), [429, 500, 502, 503, 504], true)) {
+                    Log::warning("Gemini {$model} saturado ({$response->status()}), cambiando a modelo de respaldo.");
+                    continue;
+                }
+
+                Log::error("Gemini {$model} Error {$response->status()}: " . $response->body());
+                return null;
+
+            } catch (ConnectionException $e) {
+                Log::warning("Gemini {$model} timeout, cambiando a modelo de respaldo.");
+                continue;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Búsqueda en dos fases: coincidencia exacta y respaldo flexible si no hay resultados
      */
     private function searchProductsInDatabase(string $termino, ?string $marca = null, ?string $categoria = null): Collection
     {
         $cleanTerm = trim(preg_replace('/[^\p{L}\p{N}\s]/u', ' ', mb_strtolower($termino)));
+
+        $stopAndGenericWords = [
+            'que', 'qué', 'cual', 'cuales', 'tienes', 'tienen', 'hay', 'vendes', 'venden',
+            'muestrame', 'mostrar', 'ver', 'quiero', 'necesito', 'busco', 'precio', 'precios',
+            'los', 'las', 'el', 'la', 'de', 'del', 'en', 'un', 'una', 'unos', 'unas', 'por', 'para',
+            'general', 'producto', 'productos', 'catalogo', 'todo', 'todos', 'tienda', 'articulos', 'disponibles', 'stock'
+        ];
+
         $words = array_values(array_filter(
             preg_split('/\s+/', $cleanTerm),
-            fn($w) => mb_strlen($w) >= 2
+            fn($w) => mb_strlen($w) >= 2 && !in_array($w, $stopAndGenericWords, true)
         ));
+
+        // Si el cliente hizo una pregunta general ("qué productos tienes", "catálogo", etc.)
+        if (empty($words) && empty($marca) && empty($categoria)) {
+            return $this->baseProductQuery()
+                ->where('products.stock', '>', 0)
+                ->orderByDesc('products.id')
+                ->limit(5)
+                ->get();
+        }
 
         // Fase 1: Búsqueda estricta (todas las palabras + filtros de marca/categoría)
         $results = $this->runProductQuery($words, $marca, $categoria, strict: true);
@@ -279,9 +341,9 @@ REGLAS ESTRICTAS:
         return $results;
     }
 
-    private function runProductQuery(array $words, ?string $marca, ?string $categoria, bool $strict): Collection
+    private function baseProductQuery()
     {
-        $query = DB::table('products')
+        return DB::table('products')
             ->leftJoin('brands', 'products.brand_id', '=', 'brands.id')
             ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
             ->select(
@@ -298,6 +360,11 @@ REGLAS ESTRICTAS:
                 'categories.name as category_name'
             )
             ->where('products.status', 1);
+    }
+
+    private function runProductQuery(array $words, ?string $marca, ?string $categoria, bool $strict): Collection
+    {
+        $query = $this->baseProductQuery();
 
         if (!empty($words)) {
             $query->where(function ($q) use ($words, $strict) {
@@ -351,8 +418,19 @@ REGLAS ESTRICTAS:
 
     private function fallbackResponse(string $userMessage)
     {
+        $directProducts = $this->searchProductsInDatabase($userMessage);
+
+        if ($directProducts->isNotEmpty()) {
+            return response()->json([
+                'reply'        => 'Encontré estas opciones disponibles en nuestro catálogo de ELECTROREDES. Si necesitas una cotización formal o asesoría técnica, puedes escribirnos directo por WhatsApp:',
+                'needs_human'  => false,
+                'whatsapp_url' => $this->buildWhatsappUrl("Hola ELECTROREDES, consulto por: {$userMessage}"),
+                'products'     => $directProducts->values()
+            ], 200);
+        }
+
         return response()->json([
-            'reply'        => 'En este momento tengo inconvenientes para consultar el inventario en línea. ¿Deseas comunicarte directamente con un asesor por WhatsApp?',
+            'reply'        => 'En este momento nuestro asistente IA tiene alta demanda. Puedes comunicarte directamente con un asesor comercial en Moquegua por WhatsApp:',
             'needs_human'  => true,
             'whatsapp_url' => $this->buildWhatsappUrl("Hola ELECTROREDES, necesito ayuda con: {$userMessage}"),
             'products'     => []
