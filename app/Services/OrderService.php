@@ -80,7 +80,7 @@ class OrderService
                 'document_type'   => $data['document_type'] ?? null,
                 'document_number' => $data['document_number'] ?? null,
                 'business_name'   => $data['business_name'] ?? null,
-                'status'  => $isPos ? 'COMPLETED' : 'PENDING',
+                'status' => OrderStatus::PENDING,
                 'subtotal' => $subtotal,
                 'discount' => $discount,
                 'total' => $total,
