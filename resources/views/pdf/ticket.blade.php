@@ -2,140 +2,153 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Ticket {{ $invoice->full_number }}</title>
     <style>
-        @page {
-            margin: 4px;
-        }
+        @page { margin: 8px 10px; }
         body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            font-size: 9px;
-            color: #000;
+            font-family: 'DejaVu Sans', sans-serif;
+            font-size: 8.5px;
+            color: #111;
             margin: 0;
-            padding: 4px;
+            padding: 0;
         }
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        .font-bold { font-weight: bold; }
-        .border-bottom { border-bottom: 1px dashed #000; margin: 4px 0; }
-        
+        .center { text-align: center; }
+        .right { text-align: right; }
+        .bold { font-weight: bold; }
+        .divider {
+            border-top: 1px dashed #444;
+            margin: 6px 0;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
         }
-        th, td {
-            padding: 2px 0;
+        th {
+            border-bottom: 1px dashed #444;
+            padding-bottom: 3px;
+            font-size: 7.5px;
+            text-align: left;
+        }
+        td {
+            padding: 2.5px 0;
             vertical-align: top;
+            font-size: 8px;
         }
-        .qr-container {
-            margin-top: 8px;
-            text-align: center;
-        }
-        .qr-container img {
-            width: 90px;
-            height: 90px;
+        .totals td {
+            padding: 1.5px 0;
         }
     </style>
 </head>
 <body>
+    @php
+        $docTitle = match($invoice->document_type) {
+            '01' => 'FACTURA ELECTRÓNICA',
+            '03' => 'BOLETA DE VENTA ELECTRÓNICA',
+            default => 'NOTA DE VENTA',
+        };
+        $correlative = $invoice->series . '-' . str_pad((string) $invoice->number, 8, '0', STR_PAD_LEFT);
+        $isElectronic = in_array($invoice->document_type, ['01', '03']);
+    @endphp
 
-    <!-- CABECERA DE EMPRESA -->
-    <div class="text-center">
-        <div class="font-bold" style="font-size: 11px;">{{ $company['name'] }}</div>
-        <div>RUC: {{ $company['ruc'] }}</div>
-        <div>{{ $company['address'] }}</div>
-        <div>Telf: {{ $company['phone'] }}</div>
+    <!-- Cabecera Empresa -->
+    <div class="center">
+        <div class="bold" style="font-size: 12px;">{{ $company['trade_name'] ?? 'ELECTROREDES' }}</div>
+        <div style="font-size: 7.5px;">{{ $company['name'] ?? '' }}</div>
+        <div>RUC: {{ $company['ruc'] ?? '' }}</div>
+        <div style="font-size: 7.5px;">{{ $company['address'] ?? '' }}</div>
+        @if(!empty($company['phone']))
+            <div>Tel: {{ $company['phone'] }}</div>
+        @endif
     </div>
 
-    <div class="border-bottom"></div>
+    <div class="divider"></div>
 
-    <!-- DATOS DEL COMPROBANTE -->
-    <div class="text-center font-bold" style="font-size: 10px;">
-        {{ strtoupper($invoice->document_type_label) }}
-    </div>
-    <div class="text-center font-bold" style="font-size: 11px;">
-        {{ $invoice->full_number }}
+    <!-- Datos del Comprobante -->
+    <div class="center">
+        <div class="bold" style="font-size: 9.5px;">{{ $docTitle }}</div>
+        <div class="bold" style="font-size: 10px;">{{ $correlative }}</div>
     </div>
 
-    <div class="border-bottom"></div>
+    <div class="divider"></div>
 
-    <!-- DATOS DEL CLIENTE -->
-    <div><span class="font-bold">Fecha:</span> {{ $invoice->created_at->format('d/m/Y H:i') }}</div>
-    <div><span class="font-bold">Cliente:</span> {{ $invoice->client_name }}</div>
+    <!-- Datos del Cliente -->
     <div>
-        <span class="font-bold">
-            {{ $invoice->client_doc_type === '6' ? 'RUC:' : ($invoice->client_doc_type === '1' ? 'DNI:' : 'Doc:') }}
-        </span> 
-        {{ $invoice->client_doc_number }}
+        <div><span class="bold">Fecha:</span> {{ $invoice->created_at?->format('d/m/Y H:i') }}</div>
+        <div><span class="bold">Cliente:</span> {{ $invoice->client_name }}</div>
+        @if(!empty($invoice->client_doc_number) && $invoice->client_doc_number !== '00000000')
+            <div>
+                <span class="bold">{{ $invoice->client_doc_type === '6' ? 'RUC' : 'DNI/DOC' }}:</span>
+                {{ $invoice->client_doc_number }}
+            </div>
+        @endif
+        @if(!empty($invoice->client_address) && $invoice->client_address !== 'CIUDAD')
+            <div><span class="bold">Dirección:</span> {{ $invoice->client_address }}</div>
+        @endif
+        <div><span class="bold">Pago:</span> {{ $invoice->payment_method }}</div>
+        @if($invoice->user)
+            <div><span class="bold">Cajero:</span> {{ $invoice->user->name }}</div>
+        @endif
     </div>
-    @if($invoice->client_address)
-        <div><span class="font-bold">Dir:</span> {{ $invoice->client_address }}</div>
-    @endif
-    <div><span class="font-bold">Pago:</span> {{ $invoice->payment_method }}</div>
 
-    <div class="border-bottom"></div>
+    <div class="divider"></div>
 
-    <!-- TABLA DE DETALLES -->
+    <!-- Detalle de Productos -->
     <table>
         <thead>
             <tr>
-                <th style="width: 15%; text-align: left;">Cant</th>
-                <th style="width: 55%; text-align: left;">Producto</th>
-                <th style="width: 30%; text-align: right;">Total</th>
+                <th style="width: 14%;">CANT</th>
+                <th style="width: 46%;">DESCRIPCIÓN</th>
+                <th style="width: 18%;" class="right">P.U.</th>
+                <th style="width: 22%;" class="right">TOTAL</th>
             </tr>
         </thead>
         <tbody>
             @foreach($invoice->details as $item)
                 <tr>
-                    <td>{{ (float)$item->quantity }}</td>
-                    <td>
-                        {{ $item->product_name }}<br>
-                        <small style="color: #444;">@ S/ {{ number_format($item->unit_price, 2) }}</small>
-                    </td>
-                    <td class="text-right">S/ {{ number_format($item->total, 2) }}</td>
+                    <td>{{ rtrim(rtrim(number_format((float)$item->quantity, 2, '.', ''), '0'), '.') }}</td>
+                    <td>{{ $item->product_name }}</td>
+                    <td class="right">{{ number_format((float)$item->unit_price, 2) }}</td>
+                    <td class="right">{{ number_format((float)$item->total, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
     </table>
 
-    <div class="border-bottom"></div>
+    <div class="divider"></div>
 
-    <!-- TOTALES -->
-    <table>
+    <!-- Totales -->
+    <table class="totals">
+        @if($isElectronic)
+            <tr>
+                <td>OP. GRAVADA:</td>
+                <td class="right">S/ {{ number_format((float)$invoice->op_taxed, 2) }}</td>
+            </tr>
+            <tr>
+                <td>I.G.V. (18%):</td>
+                <td class="right">S/ {{ number_format((float)$invoice->igv, 2) }}</td>
+            </tr>
+        @endif
         <tr>
-            <td class="text-right font-bold">Op. Gravada:</td>
-            <td class="text-right" style="width: 35%;">S/ {{ number_format($invoice->op_taxed, 2) }}</td>
-        </tr>
-        <tr>
-            <td class="text-right font-bold">IGV (18%):</td>
-            <td class="text-right">S/ {{ number_format($invoice->igv, 2) }}</td>
-        </tr>
-        <tr style="font-size: 11px;">
-            <td class="text-right font-bold">TOTAL:</td>
-            <td class="text-right font-bold">S/ {{ number_format($invoice->total, 2) }}</td>
+            <td class="bold" style="font-size: 9.5px;">TOTAL A PAGAR:</td>
+            <td class="right bold" style="font-size: 9.5px;">S/ {{ number_format((float)$invoice->total, 2) }}</td>
         </tr>
     </table>
 
-    <div class="border-bottom"></div>
+    <div class="divider"></div>
 
-    <!-- CÓDIGO QR Y LEYENDA SUNAT -->
-    @if($invoice->document_type !== 'NV')
-        <div class="qr-container">
-            <img src="{{ $qrCode }}" alt="SUNAT QR">
-        </div>
-        <div class="text-center" style="font-size: 7px; margin-top: 4px;">
-            Representación impresa del Comprobante de Pago Electrónico.<br>
-            Consulte su documento en nuestra plataforma.
-        </div>
-    @else
-        <div class="text-center font-bold" style="font-size: 8px; margin-top: 6px;">
-            DOCUMENTO DE CONTROL INTERNO (NO VALIDO COMO COMPROBANTE DE PAGO)
-        </div>
-    @endif
+    <!-- QR SUNAT / Pie -->
+    <div class="center">
+        @if($isElectronic && !empty($qrBase64))
+            <img src="{{ $qrBase64 }}" width="90" height="90" alt="QR SUNAT" style="margin: 4px 0;">
+            <div style="font-size: 7px;">
+                Representación impresa de la {{ ucfirst(strtolower($docTitle)) }}.
+            </div>
+            <div class="bold" style="font-size: 7px;">Estado SUNAT: {{ $invoice->sunat_status }}</div>
+        @else
+            <div class="bold" style="font-size: 7.5px;">DOCUMENTO INTERNO - SIN VALOR TRIBUTARIO</div>
+        @endif
 
-    <div class="text-center" style="margin-top: 8px;">
-        ¡Gracias por su compra!
+        <div class="bold" style="margin-top: 6px; font-size: 9px;">¡Gracias por su compra!</div>
+        <div style="font-size: 7px;">Conserve este comprobante</div>
     </div>
-
 </body>
 </html>

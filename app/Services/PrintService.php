@@ -18,7 +18,7 @@ class PrintService
         $qrBase64 = $this->generateSunatQrBase64($invoice);
 
         // Configurar papel térmico de 80mm (Ancho: 226.77 pt (~80mm), Alto dinámico)
-        $pdf = Pdf::loadView('pdf.ticket_80mm', [
+        $pdf = Pdf::loadView('pdf.ticket', [
             'invoice' => $invoice,
             'qrBase64' => $qrBase64,
             'company' => $this->getCompanyInfo(),
@@ -54,7 +54,7 @@ class PrintService
         if ($invoice->document_type === 'NV') {
             return '';
         }
-        
+
         $companyRuc = config('app.company_ruc', '10723512552');
 
         $qrText = implode('|', [
