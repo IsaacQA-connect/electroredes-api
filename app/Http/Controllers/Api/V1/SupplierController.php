@@ -13,10 +13,20 @@ class SupplierController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $suppliers = Supplier::latest()->paginate(20);
-        return response()->json(['data' => $suppliers]);
+        $query = Supplier::query()->where('status', true);
+
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('business_name', 'LIKE', "%{$search}%")
+                ->orWhere('document_number', 'LIKE', "%{$search}%");
+            });
+        }
+
+        return response()->json([
+            'data' => $query->latest()->paginate($request->get('per_page', 50))
+        ]);
     }
 
     /**

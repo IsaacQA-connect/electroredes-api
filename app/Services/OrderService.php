@@ -104,9 +104,16 @@ class OrderService
                 $order->update([
                     'status' => OrderStatus::COMPLETED,
                 ]);
+
+                // Generar correlativo (B001, F001 o NV01) y emitir a ApisPeru si es Boleta/Factura
+                app(InvoiceService::class)->createInvoiceFromPosOrder(
+                    $order,
+                    $data,
+                    $user
+                );
             }
 
-            $order->load('details.product', 'payments');
+            $order->load('details.product', 'payments', 'invoice');
 
             return $order;
         });

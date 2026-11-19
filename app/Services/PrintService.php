@@ -51,6 +51,10 @@ class PrintService
      */
     private function generateSunatQrBase64(Invoice $invoice): string
     {
+        if ($invoice->document_type === 'NV') {
+            return '';
+        }
+        
         $companyRuc = config('app.company_ruc', '10723512552');
 
         $qrText = implode('|', [

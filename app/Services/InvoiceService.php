@@ -59,7 +59,7 @@ class InvoiceService
     }
 
     /**
-     * DISPARADOR DE FACTURACIÓN: Crea un invoice a partir de un Order pagado.
+     * DISPARADOR DE FACTURACIÓN: Crea un invoice a partir de un Order (Web o POS).
      */
     public function createInvoiceFromOrder(Order $order): Invoice
     {
@@ -67,31 +67,58 @@ class InvoiceService
         return DB::transaction(function () use ($order) {
             $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
 
-            // 1. Evitar duplicidad si la orden ya tiene factura generada
+            // 1. Evitar duplicidad si la orden ya tiene comprobante generado
             $existingInvoice = Invoice::where('order_id', $lockedOrder->id)->first();
             if ($existingInvoice) {
                 return $existingInvoice;
             }
 
-            $isFactura = strtoupper($lockedOrder->invoice_type ?? 'BOLETA') === 'FACTURA';
-            $docType   = $isFactura ? '01' : '03'; // 01 = Factura, 03 = Boleta
-            $series    = $isFactura 
-                ? config('services.apisperu.serie_factura', 'F001') 
-                : config('services.apisperu.serie_boleta', 'B001');
+            // Soportar tanto campos de Web (invoice_type) como de POS (document_type)
+            $rawType   = strtoupper((string) ($lockedOrder->document_type ?? $lockedOrder->invoice_type ?? 'BOLETA'));
+            $isNota    = in_array($rawType, ['NOTA_VENTA', 'NV']);
+            $isFactura = in_array($rawType, ['FACTURA', '01']);
+
+            $docType = $isNota ? 'NV' : ($isFactura ? '01' : '03'); // NV = Nota, 01 = Factura, 03 = Boleta
+            $series  = $isNota
+                ? config('services.apisperu.serie_nota_venta', 'NV01')
+                : ($isFactura
+                    ? config('services.apisperu.serie_factura', 'F001')
+                    : config('services.apisperu.serie_boleta', 'B001'));
+
+            // Documento y nombre del cliente (Web o POS)
+            $docNumber = trim((string) ($lockedOrder->customer_document ?? $lockedOrder->document_number ?? ''));
 
             // Determinar tipo de documento cliente (6: RUC, 1: DNI, 0: Sin doc)
-            $clientDocType = '1';
-            if ($isFactura || strlen($lockedOrder->document_number ?? '') === 11) {
+            $clientDocType = '0';
+            if ($isFactura || strlen($docNumber) === 11) {
                 $clientDocType = '6';
-            } elseif (!$lockedOrder->document_number) {
-                $clientDocType = '0';
+            } elseif (strlen($docNumber) === 8) {
+                $clientDocType = '1';
+            }
+
+            $clientName = trim((string) (
+                $lockedOrder->customer_name
+                ?? $lockedOrder->business_name
+                ?? $lockedOrder->customer?->name
+                ?? ''
+            ));
+            if ($clientName === '') {
+                $clientName = 'CLIENTES VARIOS';
             }
 
             // Fallback seguro de dirección
-            $clientAddress = $lockedOrder->shipping_address 
-                ?? $lockedOrder->notes 
-                ?? $lockedOrder->customer?->address 
+            $clientAddress = $lockedOrder->shipping_address
+                ?? $lockedOrder->notes
+                ?? $lockedOrder->customer?->address
                 ?? 'CIUDAD';
+
+            // Normalizar método de pago para caja chica ('EFECTIVO' -> 'CASH')
+            $rawPayment = strtoupper((string) (
+                $lockedOrder->payment_method
+                ?? $lockedOrder->payments->first()?->method
+                ?? 'ONLINE_PAYMENT'
+            ));
+            $paymentMethod = in_array($rawPayment, ['EFECTIVO', 'CASH']) ? 'CASH' : $rawPayment;
 
             // Mapear los items de la Orden
             $items = $lockedOrder->details->map(function ($detail) {
@@ -110,21 +137,21 @@ class InvoiceService
                 'document_type'     => $docType,
                 'series'            => $series,
                 'client_doc_type'   => $clientDocType,
-                'client_doc_number' => $lockedOrder->document_number ?? '00000000',
-                'client_name'       => $lockedOrder->business_name ?? $lockedOrder->customer?->name ?? 'CLIENTE VARIOS',
+                'client_doc_number' => $docNumber !== '' ? $docNumber : '00000000',
+                'client_name'       => $clientName,
                 'client_address'    => $clientAddress,
                 'op_taxed'          => $totals['op_taxed'],
                 'igv'               => $totals['igv'],
                 'total'             => $totals['total'],
-                'payment_method'    => $lockedOrder->payments->first()->method ?? 'ONLINE_PAYMENT',
+                'payment_method'    => $paymentMethod,
                 'items'             => $items,
                 'order_id'          => $lockedOrder->id,
                 'customer_id'       => $lockedOrder->customer_id ?? null,
             ];
 
             // Obtener o asignar usuario del sistema
-            $user = $lockedOrder->user 
-                ?? auth()->user() 
+            $user = $lockedOrder->user
+                ?? auth()->user()
                 ?? User::first();
 
             $invoice = $this->createInvoice($payload, $user);
@@ -151,10 +178,10 @@ class InvoiceService
             $documentType  = $data['document_type'];
             $paymentMethod = $data['payment_method'] ?? 'CASH';
 
-            // 1. Correlativo atómico
+            // 1. Correlativo atómico (B001, F001 o NV01)
             $number = $this->seriesService->getNextCorrelative($documentType, $data['series']);
 
-            // 2. Cabecera de Factura
+            // 2. Cabecera de Factura / Boleta / Nota de Venta
             $invoice = Invoice::create([
                 'user_id'           => $user->id,
                 'order_id'          => $data['order_id'] ?? null,
@@ -190,29 +217,31 @@ class InvoiceService
                 ]);
             }
 
-            // 4. Descontar Inventario
-            if (!empty($data['order_id'])) {
+            // 4. Descontar Inventario (solo si no viene ya descontado desde OrderService)
+            if (empty($data['skip_inventory_and_cash']) && !empty($data['order_id'])) {
                 $order = Order::with('details')->find($data['order_id']);
                 if ($order) {
                     $this->inventoryService->registerSaleExit($order, $user);
                 }
             }
 
-            // 5. Caja Chica (Solo pagos en efectivo)
-            $activeRegister = CashRegister::where('status', 'OPEN')->latest()->first();
-            if ($activeRegister && $paymentMethod === 'CASH') {
-                CashRegisterMovement::create([
-                    'cash_register_id' => $activeRegister->id,
-                    'user_id'          => $user->id,
-                    'type'             => 'INFLOW',
-                    'amount'           => $invoice->total,
-                    'description'      => "Venta {$invoice->series}-{$number} ({$invoice->client_name})",
-                    'reference_type'   => 'INVOICE',
-                    'reference_id'     => $invoice->id,
-                ]);
+            // 5. Caja Chica (solo si no viene ya registrada desde OrderService)
+            if (empty($data['skip_inventory_and_cash'])) {
+                $activeRegister = CashRegister::where('status', 'OPEN')->latest()->first();
+                if ($activeRegister && $paymentMethod === 'CASH') {
+                    CashRegisterMovement::create([
+                        'cash_register_id' => $activeRegister->id,
+                        'user_id'          => $user->id,
+                        'type'             => 'INFLOW',
+                        'amount'           => $invoice->total,
+                        'description'      => "Venta {$invoice->series}-{$number} ({$invoice->client_name})",
+                        'reference_type'   => 'INVOICE',
+                        'reference_id'     => $invoice->id,
+                    ]);
+                }
             }
 
-            // 6. SUNAT vía APIsPeru
+            // 6. SUNAT vía APIsPeru (Solo Factura 01 y Boleta 03)
             if (in_array($documentType, ['01', '03'])) {
                 $this->processSunatEmission($invoice);
             }
@@ -247,9 +276,9 @@ class InvoiceService
             ? (string) $resData['sunatResponse']['cdrResponse']['code']
             : (isset($resData['code']) ? (string) $resData['code'] : '0');
 
-        $description = $resData['sunatResponse']['cdrResponse']['description'] 
-            ?? $resData['sunatResponse']['description'] 
-            ?? $apisResult['message'] 
+        $description = $resData['sunatResponse']['cdrResponse']['description']
+            ?? $resData['sunatResponse']['description']
+            ?? $apisResult['message']
             ?? 'Procesado por SUNAT';
 
         // Guardar archivo ZIP CDR localmente
@@ -288,5 +317,80 @@ class InvoiceService
         $this->processSunatEmission($invoice);
 
         return $invoice->fresh();
+    }
+
+    /**
+     * Emite Boleta (03), Factura (01) o Nota de Venta (NV) desde una orden POS ya descontada.
+     */
+    public function createInvoiceFromPosOrder(Order $order, array $data, User $user): Invoice
+    {
+        $existingInvoice = Invoice::where('order_id', $order->id)->first();
+        if ($existingInvoice) {
+            return $existingInvoice;
+        }
+
+        $rawType   = strtoupper((string) ($data['document_type'] ?? $data['invoice_type'] ?? 'BOLETA'));
+        $isNota    = in_array($rawType, ['NOTA_VENTA', 'NV']);
+        $isFactura = in_array($rawType, ['FACTURA', '01']);
+
+        $docType = $isNota ? 'NV' : ($isFactura ? '01' : '03');
+        $series  = $isNota
+            ? config('services.apisperu.serie_nota_venta', 'NV01')
+            : ($isFactura
+                ? config('services.apisperu.serie_factura', 'F001')
+                : config('services.apisperu.serie_boleta', 'B001'));
+
+        $docNumber = trim((string) ($data['customer_document'] ?? $data['document_number'] ?? ''));
+
+        $clientDocType = '0';
+        if ($isFactura || strlen($docNumber) === 11) {
+            $clientDocType = '6';
+        } elseif (strlen($docNumber) === 8) {
+            $clientDocType = '1';
+        }
+
+        $clientName = trim((string) (
+            $data['customer_name']
+            ?? $data['business_name']
+            ?? $order->customer?->name
+            ?? ''
+        ));
+        if ($clientName === '') {
+            $clientName = 'CLIENTES VARIOS';
+        }
+
+        $items = $order->details->map(function ($detail) {
+            return [
+                'product_id'   => $detail->product_id,
+                'product_name' => $detail->product->name ?? 'Producto',
+                'quantity'     => $detail->quantity,
+                'unit_price'   => $detail->unit_price,
+                'tax_type'     => 'TAXED',
+            ];
+        })->toArray();
+
+        $totals = $this->calculateTotals($items);
+
+        $firstPayment = $order->payments->first();
+        $paymentMethod = $firstPayment
+            ? (is_object($firstPayment->method) ? $firstPayment->method->value : (string) $firstPayment->method)
+            : 'CASH';
+
+        return $this->createInvoice([
+            'document_type'           => $docType,
+            'series'                  => $series,
+            'client_doc_type'         => $clientDocType,
+            'client_doc_number'       => $docNumber !== '' ? $docNumber : '00000000',
+            'client_name'             => $clientName,
+            'client_address'          => $order->customer?->address ?? 'CIUDAD',
+            'op_taxed'                => $totals['op_taxed'],
+            'igv'                     => $totals['igv'],
+            'total'                   => $totals['total'],
+            'payment_method'          => $paymentMethod,
+            'items'                   => $items,
+            'order_id'                => $order->id,
+            'customer_id'             => $order->customer_id,
+            'skip_inventory_and_cash' => true, // OrderService ya descontó stock y registró caja
+        ], $user);
     }
 }

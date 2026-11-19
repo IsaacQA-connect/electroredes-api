@@ -19,17 +19,42 @@ class PurchaseController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $purchases = Purchase::with(['supplier', 'user', 'details.product'])
-            ->latest('purchase_date')
+        $query = Purchase::with(['supplier', 'user', 'details.product']);
+
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('document_number', 'LIKE', "%{$search}%")
+                ->orWhereHas('supplier', fn($s) => $s->where('business_name', 'LIKE', "%{$search}%")
+                    ->orWhere('document_number', 'LIKE', "%{$search}%"));
+            });
+        }
+
+        if ($supplierId = $request->query('supplier_id')) {
+            $query->where('supplier_id', $supplierId);
+        }
+
+        if ($docType = $request->query('document_type')) {
+            $query->where('document_type', $docType);
+        }
+
+        if ($dateFrom = $request->query('date_from')) {
+            $query->whereDate('purchase_date', '>=', $dateFrom);
+        }
+
+        if ($dateTo = $request->query('date_to')) {
+            $query->whereDate('purchase_date', '<=', $dateTo);
+        }
+
+        $purchases = $query->latest('purchase_date')
             ->paginate($request->get('per_page', 20));
 
         return response()->json([
             'data' => PurchaseResource::collection($purchases),
             'meta' => [
                 'current_page' => $purchases->currentPage(),
-                'last_page' => $purchases->lastPage(),
-                'per_page' => $purchases->perPage(),
-                'total' => $purchases->total(),
+                'last_page'    => $purchases->lastPage(),
+                'per_page'     => $purchases->perPage(),
+                'total'        => $purchases->total(),
             ],
         ]);
     }
