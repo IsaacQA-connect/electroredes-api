@@ -79,7 +79,7 @@ class ProductController extends Controller
                         'brand'       => $item['brand'] ?? '',
                         'category'    => $item['category'] ?? '',
                         'description' => $item['description'] ?? '',
-                        'image_url'   => $item['images'][0] ?? null,
+                        'image_url'   => $this->toDataUri($imageUrl),
                     ];
                 }
             } catch (\Throwable $e) {
@@ -94,6 +94,7 @@ class ProductController extends Controller
 
                 if ($offRes->successful() && $offRes->json('status') === 1) {
                     $product = $offRes->json('product', []);
+                    $imageUrl = $product['image_front_url'] ?? $product['image_url'] ?? null;
                     return [
                         'found'       => true,
                         'source'      => 'OpenFoodFacts',
@@ -101,7 +102,8 @@ class ProductController extends Controller
                         'brand'       => $product['brands'] ?? '',
                         'category'    => $product['categories'] ?? '',
                         'description' => $product['generic_name_es'] ?? $product['quantity'] ?? '',
-                        'image_url'   => $product['image_front_url'] ?? $product['image_url'] ?? null,
+                        'image_url'     => $imageUrl,
+                        'image_preview' => $this->toDataUri($imageUrl),
                     ];
                 }
             } catch (\Throwable $e) {
@@ -112,6 +114,25 @@ class ProductController extends Controller
         });
 
         return response()->json($data);
+    }
+
+    private function toDataUri(?string $url): ?string
+    {
+        if (!$url) {
+            return null;
+        }
+
+        try {
+            $res = Http::timeout(4)->get($url);
+            $mime = $res->header('Content-Type', '');
+
+            if ($res->successful() && str_starts_with($mime, 'image/') && strlen($res->body()) <= 512000) {
+                return 'data:' . explode(';', $mime)[0] . ';base64,' . base64_encode($res->body());
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return null;
     }
 
     public function store(StoreProductRequest $request): JsonResponse
