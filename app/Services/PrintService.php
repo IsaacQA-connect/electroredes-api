@@ -82,7 +82,7 @@ class PrintService
     private function getCompanyInfo(): array
     {
         return [
-            'ruc'          => config('app.company_ruc', '20000000000'),
+            'ruc'          => config('app.company_ruc', '10723512552'),
             'name'         => config('app.company_name', 'HERRERA PAREDEZ EVENZ NOE'),
             'trade_name'   => config('app.company_commercial_name', 'ELECTROREDES'),
             'address'      => config('app.company_address', 'Asoc. 8 de diciembre Mz-H1 Lt-8 - Moquegua'),
