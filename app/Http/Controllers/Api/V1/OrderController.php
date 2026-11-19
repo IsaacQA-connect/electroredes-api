@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Order\StoreOrderRequest;
+use App\Http\Requests\Order\UpdateOrderStatusRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Services\ApisPeruService;
@@ -27,7 +28,7 @@ class OrderController extends Controller
 
         // 2. Si no es administrador, filtrar únicamente sus órdenes
         $roleName = is_object($user?->role) ? $user->role->name : $user?->role;
-        
+
         if (strtoupper($roleName ?? '') !== 'ADMIN') {
             $query->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id);
@@ -86,7 +87,7 @@ class OrderController extends Controller
         $roleName = is_object($user?->role) ? $user->role->name : $user?->role;
 
         if (strtoupper($roleName ?? '') !== 'ADMIN') {
-            $isOwner = $order->user_id === $user?->id || 
+            $isOwner = $order->user_id === $user?->id ||
                        ($user?->customer && $order->customer_id === $user->customer->id);
 
             if (!$isOwner) {
@@ -107,19 +108,26 @@ class OrderController extends Controller
         ]);
     }
 
-    public function update(Request $request, Order $order)
+    public function update(UpdateOrderStatusRequest $request, Order $order): JsonResponse
     {
-        $request->validate([
-            'status' => 'required|string',
-        ]);
+        return $this->updateStatus($request, $order);
+    }
+
+    public function updateStatus(UpdateOrderStatusRequest $request, Order $order): JsonResponse
+    {
+        $validated = $request->validated();
 
         $updatedOrder = $this->orderService->updateStatus(
             $order,
-            $request->status,
-            $request->user()
+            $validated['status'],
+            $request->user(),
+            $validated['cancellation_reason'] ?? null
         );
 
-        return new OrderResource($updatedOrder);
+        return response()->json([
+            'message' => 'Estado de la orden actualizado correctamente.',
+            'data'    => new OrderResource($updatedOrder),
+        ]);
     }
 
     /**
@@ -148,7 +156,7 @@ class OrderController extends Controller
 
         // Validar permisos de acceso
         if ($user && strtoupper($roleName ?? '') !== 'ADMIN') {
-            $isOwner = $order->user_id === $user->id || 
+            $isOwner = $order->user_id === $user->id ||
                        ($user->customer && $order->customer_id === $user->customer->id);
 
             if (!$isOwner) {

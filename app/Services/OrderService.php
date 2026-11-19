@@ -112,20 +112,35 @@ class OrderService
         });
     }
 
-    public function updateStatus(Order $order, OrderStatus|string $newStatus, User $user): Order
-    {
+    public function updateStatus(
+        Order $order,
+        OrderStatus|string $newStatus,
+        User $user,
+        ?string $cancellationReason = null
+    ): Order {
         if (is_string($newStatus)) {
             $newStatus = OrderStatus::from($newStatus);
         }
 
+        if ($newStatus === OrderStatus::CANCELLED && blank($cancellationReason)) {
+            throw ValidationException::withMessages([
+                'cancellation_reason' => [
+                    'Debes indicar el motivo de la cancelación.'
+                ],
+            ]);
+        }
+
         $oldStatus = $order->status;
 
-        // Si el estado enviado es el mismo que ya tiene, no hacemos nada
+        // Si el estado enviado es el mismo que ya tiene, no tocamos inventario
         if ($oldStatus === $newStatus) {
+            if ($newStatus === OrderStatus::CANCELLED && $cancellationReason) {
+                $order->update(['cancellation_reason' => trim($cancellationReason)]);
+            }
             return $order;
         }
 
-        return DB::transaction(function () use ($order, $oldStatus, $newStatus, $user) {
+        return DB::transaction(function () use ($order, $oldStatus, $newStatus, $user, $cancellationReason) {
 
             // Evaluamos si el stock ya estaba descontado o si debe estarlo ahora
             $wasDeducted = ($oldStatus === OrderStatus::COMPLETED);
@@ -160,12 +175,15 @@ class OrderService
             // 🟡 CASO 3: Transición entre PENDING y CANCELLED (o viceversa)
             // -> No toca el inventario en absoluto.
 
-            // Actualizamos el estado en la base de datos
+            // Actualizamos el estado y el motivo de cancelación
             $order->update([
-                'status' => $newStatus,
+                'status'              => $newStatus,
+                'cancellation_reason' => $newStatus === OrderStatus::CANCELLED
+                    ? trim($cancellationReason)
+                    : null,
             ]);
 
-            return $order->fresh(['details.product', 'payments', 'customer']);
+            return $order->fresh(['details.product', 'payments', 'customer', 'invoice']);
         });
     }
 

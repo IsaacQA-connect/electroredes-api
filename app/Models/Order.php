@@ -21,6 +21,7 @@ class Order extends Model
         'total',
         'order_date',
         'notes',
+        'cancellation_reason',
         // Campos de Facturación / SUNAT
         'invoice_type',
         'document_type',

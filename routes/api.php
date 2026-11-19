@@ -146,6 +146,7 @@ Route::prefix('v1')->group(function () {
         Route::get('orders/{order}/returns', [OrderReturnController::class, 'index']);
         Route::get('returns/{orderReturn}', [OrderReturnController::class, 'show']);
         Route::put('orders/{order}', [OrderController::class, 'update']);
+        Route::patch('/orders/{order}/status', [OrderController::class, 'updateStatus']);
         // Rutas de descarga de PDF / XML
         Route::get('orders/{order}/download-pdf', [OrderController::class, 'downloadPdf']);
         Route::get('orders/{order}/download-xml', [OrderController::class, 'downloadXml']);
