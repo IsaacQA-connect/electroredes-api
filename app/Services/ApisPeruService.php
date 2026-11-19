@@ -157,7 +157,7 @@ class ApisPeruService
             $igvItem       = round($totalItem - $valorVenta, 2);
 
             return [
-                'codProducto'       => (string) $detail->product_id,
+                'codProducto'       => (string) $detail->product_code,
                 'unidad'            => $detail->unit_code ?? 'NIU',
                 'descripcion'       => $detail->product_name ?? 'Producto',
                 'cantidad'          => $quantity,

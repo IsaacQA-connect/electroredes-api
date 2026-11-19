@@ -265,7 +265,7 @@ class InvoiceService
         $xmlUrl = url("/api/v1/invoices/{$invoice->id}/xml");
         $cdrUrl = url("/api/v1/invoices/{$invoice->id}/cdr");
 
-        $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details'));
+        $apisResult = $this->apisPeruService->sendInvoice($invoice->load('details.product'));
 
         if (!$apisResult['success']) {
             $invoice->update([
