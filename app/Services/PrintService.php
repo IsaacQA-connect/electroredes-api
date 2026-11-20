@@ -13,7 +13,7 @@ class PrintService
      */
     public function generateTicketPdf(Invoice $invoice)
     {
-        $invoice->load(['details', 'user']);
+        $invoice->load(['details.product', 'user']);
 
         $qrBase64 = $this->generateSunatQrBase64($invoice);
 
