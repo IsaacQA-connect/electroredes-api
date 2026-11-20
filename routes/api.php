@@ -30,9 +30,9 @@ Route::prefix('v1')->group(function () {
     // 1. RUTAS PÚBLICAS (Accesibles sin autenticación)
     // =======================================================
     Route::get('products', [ProductController::class, 'index']);
-    Route::get('products/{product}', [ProductController::class, 'show']);
+    Route::get('products/{product}', [ProductController::class, 'show'])->whereNumber('product');
     Route::get('categories', [CategoryController::class, 'index']);
-    Route::get('categories/{category}', [CategoryController::class, 'show']);    
+    Route::get('categories/{category}', [CategoryController::class, 'show'])->whereNumber('category');
     Route::get('/brands', [BrandController::class, 'index']);
     Route::post('/brands', [BrandController::class, 'store']);
     Route::post('payments/webhook', [PaymentController::class, 'handleWebhook']);
@@ -177,8 +177,8 @@ Route::prefix('v1')->group(function () {
         // Consulta Ruc
         //Route::get('/lookup/{type}/{number}', [App\Http\Controllers\CustomerLookupController::class, 'lookup']);
         // Consulta DNI y RUC usando APIsPeru
-        Route::get('/lookup/dni/{dni}', [CustomerLookupController::class, 'searchDni']);
-        Route::get('/lookup/ruc/{ruc}', [CustomerLookupController::class, 'searchRuc']);
+        //Route::get('/lookup/dni/{dni}', [CustomerLookupController::class, 'searchDni']);
+        //Route::get('/lookup/ruc/{ruc}', [CustomerLookupController::class, 'searchRuc']);
         Route::get('/lookup/dni/{dni}', [LookupController::class, 'searchDni']);
         Route::get('/lookup/ruc/{ruc}', [LookupController::class, 'searchRuc']);
 
@@ -190,7 +190,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'downloadPdf']);
         Route::get('/invoices/{invoice}/xml', [InvoiceController::class, 'downloadXml']);
         Route::get('/invoices/{invoice}/cdr', [InvoiceController::class, 'downloadCdr']);
-        Route::get('/invoices/{invoice}/ticket', [InvoiceController::class, 'streamTicket']);
         Route::get('/invoices/{invoice}/stream-pdf', [InvoiceController::class, 'streamPdf']);
         Route::post('/invoices/{invoice}/resend-sunat', [InvoiceController::class, 'resendSunat']);
         Route::apiResource('invoices', InvoiceController::class);
